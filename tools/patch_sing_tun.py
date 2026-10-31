@@ -1,7 +1,9 @@
-"""Android запрещает обычным приложениям netlink-сокеты, поэтому монитор сети из
-библиотеки sing-tun (её использует Mihomo) падает при запуске туннеля.
-Скрипт копирует sing-tun, подменяет монитор на пустышку для Android
-и подключает копию через go.mod replace.
+"""Android запрещает обычным приложениям некоторые вещи, на которые рассчитана
+библиотека sing-tun (её использует Mihomo):
+  1. netlink-сокеты (монитор сети), поэтому монитор подменяется пустышкой;
+  2. чтение /data/system/packages.xml (список приложений), поэтому ошибка чтения
+     игнорируется и список остаётся пустым (правила по приложениям нам не нужны).
+Скрипт копирует sing-tun, правит копию и подключает её через go.mod replace.
 Запускается из папки mihomo."""
 import os
 import pathlib
@@ -66,6 +68,28 @@ for needle in ('/x/list"', '/logger"', '"runtime"'):
 
 text = text.replace("func NewNetworkUpdateMonitor(", "func newNetworkUpdateMonitorLinux(", 1) + STUB
 target.write_text(text)
+
+# --- 2. Список приложений: ошибку чтения игнорируем ---
+pk = dst / "packages_android.go"
+if pk.exists():
+    ptext = pk.read_text()
+    needle = 'return E.Cause(err, "read packages list")'
+    if needle not in ptext:
+        sys.exit("В packages_android.go не найдено ожидаемое место. Код библиотеки изменился.")
+    for imp in ('"bytes"', '"encoding/xml"'):
+        if imp not in ptext:
+            sys.exit("В packages_android.go нет импорта " + imp)
+    ptext = ptext.replace(
+        needle,
+        'm.logger.Warn(E.Cause(err, "read packages list (ignored)"))\n'
+        '\t\t_ = m.decodePackages(xml.NewDecoder(bytes.NewReader([]byte("<packages></packages>"))))\n'
+        '\t\treturn nil',
+        1,
+    )
+    pk.write_text(ptext)
+    print("packages_android.go исправлен")
+else:
+    print("packages_android.go не найден, пропускаем")
 
 subprocess.check_call(["go", "mod", "edit", "-replace", "%s=%s" % (MOD, dst)])
 print("sing-tun подменён:", target.name, "->", dst)

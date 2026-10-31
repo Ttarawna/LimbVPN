@@ -125,7 +125,7 @@ class SettingsSheet extends StatelessWidget {
                 onTap: () => _showLog(context),
               ),
             const ListTile(
-              title: Text('Версия 0.5.1'),
+              title: Text('Версия 0.5.2'),
               subtitle: Text(
                   'Изменения настроек применяются при следующем подключении.'),
             ),
