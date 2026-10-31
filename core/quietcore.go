@@ -6,6 +6,9 @@ package quietcore
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"sync"
 	"syscall"
 
@@ -25,7 +28,25 @@ type Protector interface {
 var (
 	mu      sync.Mutex
 	running bool
+	logFile *os.File
+
+	secretRe = regexp.MustCompile(`(?m)^(\s*(?:-\s*)?(?:username|password|server):).*$`)
 )
+
+// redirectLogs направляет stdout и stderr процесса в файл, чтобы журнал ядра
+// можно было показать в приложении.
+func redirectLogs(path string) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return
+	}
+	_ = syscall.Dup3(int(f.Fd()), 1, 0)
+	_ = syscall.Dup3(int(f.Fd()), 2, 0)
+	if logFile != nil {
+		_ = logFile.Close()
+	}
+	logFile = f
+}
 
 // Version возвращает версию встроенного ядра Mihomo.
 func Version() string { return constant.Version }
@@ -38,6 +59,8 @@ func Start(homeDir string, config string, tunFd int, p Protector) error {
 		return errors.New("ядро уже запущено")
 	}
 
+	redirectLogs(filepath.Join(homeDir, "core.log"))
+
 	// Ядро получает копию дескриптора: оригиналом владеет Kotlin и закроет его сам.
 	fd, err := syscall.Dup(tunFd)
 	if err != nil {
@@ -49,6 +72,11 @@ func Start(homeDir string, config string, tunFd int, p Protector) error {
 		_ = syscall.Close(fd)
 		return fmt.Errorf("конфиг: %w", err)
 	}
+
+	fmt.Println("=== quietcore: версия Mihomo", constant.Version, "===")
+	fmt.Println("=== итоговый конфиг (логин, пароль и сервер скрыты) ===")
+	fmt.Println(secretRe.ReplaceAllString(string(cfg), `$1 "***"`))
+	fmt.Println("=== запуск ===")
 
 	if p != nil {
 		dialer.DefaultSocketHook = func(network, address string, conn syscall.RawConn) error {
@@ -70,6 +98,7 @@ func Start(homeDir string, config string, tunFd int, p Protector) error {
 		return fmt.Errorf("запуск Mihomo: %w", err)
 	}
 	running = true
+	fmt.Println("=== quietcore: ядро запущено ===")
 	return nil
 }
 

@@ -23,6 +23,13 @@ class AndroidVpnController extends VpnController {
   @override
   bool get hasSystemKillSwitch => true;
 
+  @override
+  bool get hasLog => true;
+
+  @override
+  Future<String> readLog() async =>
+      await _channel.invokeMethod<String>('readLog') ?? '';
+
   Future<void> _syncInitialState() async {
     try {
       final s = await _channel.invokeMethod<String>('status');

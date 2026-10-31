@@ -51,6 +51,19 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "status" -> result.success(QuietVpnService.current)
+                "readLog" -> {
+                    val file = java.io.File(filesDir, "mihomo/core.log")
+                    val text = try {
+                        if (!file.exists()) "Журнал пока пуст"
+                        else {
+                            val all = file.readText()
+                            if (all.length > 30000) all.take(6000) + "\n...\n" + all.takeLast(24000) else all
+                        }
+                    } catch (e: Exception) {
+                        "Не удалось прочитать журнал: " + e.message
+                    }
+                    result.success(text)
+                }
                 "openVpnSettings" -> {
                     startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
                     result.success(null)

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/app_state.dart';
 
@@ -27,6 +28,31 @@ class SettingsSheet extends StatelessWidget {
       if (ok != true) return;
     }
     app.setFlag(Flag.killSwitch, value);
+  }
+
+  Future<void> _showLog(BuildContext context) async {
+    final text = await app.vpn.readLog();
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Журнал ядра'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: SelectableText(text,
+                style: const TextStyle(fontSize: 11, fontFamily: 'monospace')),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Clipboard.setData(ClipboardData(text: text)),
+              child: const Text('Скопировать')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Закрыть')),
+        ],
+      ),
+    );
   }
 
   @override
@@ -90,8 +116,16 @@ class SettingsSheet extends StatelessWidget {
               onChanged: (v) => app.setFlag(Flag.autostart, v),
               title: const Text('Запускать при старте системы'),
             ),
+            if (app.vpn.hasLog)
+              ListTile(
+                title: const Text('Журнал ядра'),
+                subtitle: const Text(
+                    'Для диагностики. Можно скопировать и отправить разработчику.'),
+                trailing: const Icon(Icons.article_outlined),
+                onTap: () => _showLog(context),
+              ),
             const ListTile(
-              title: Text('Версия 0.4'),
+              title: Text('Версия 0.5'),
               subtitle: Text(
                   'Изменения настроек применяются при следующем подключении.'),
             ),

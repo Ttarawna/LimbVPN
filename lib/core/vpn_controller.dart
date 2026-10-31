@@ -12,6 +12,11 @@ abstract class VpnController extends ChangeNotifier {
   /// Есть ли у платформы системный kill switch, который можно открыть из приложения.
   bool get hasSystemKillSwitch => false;
 
+  /// Есть ли журнал ядра для диагностики.
+  bool get hasLog => false;
+
+  Future<String> readLog() async => '';
+
   /// Открывает системные настройки VPN (на Android: «Блокировать соединения без VPN»).
   Future<void> openSystemVpnSettings() async {}
 

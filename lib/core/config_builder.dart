@@ -23,7 +23,7 @@ String buildMihomoConfig(
 
   b.writeln('mixed-port: 7890');
   b.writeln('mode: rule');
-  b.writeln('log-level: warning');
+  b.writeln('log-level: info');
   b.writeln('ipv6: ${!blockIpv6}');
   b.writeln('find-process-mode: off');
   b.writeln('geodata-mode: true');
