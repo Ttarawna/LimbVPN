@@ -9,8 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/metacubex/mihomo/component/dialer"
 	"github.com/metacubex/mihomo/constant"
@@ -31,6 +33,7 @@ var (
 	logFile *os.File
 
 	secretRe = regexp.MustCompile(`(?m)^(\s*(?:-\s*)?(?:username|password|server):).*$`)
+	ruleRe   = regexp.MustCompile(`(?m)^(\s*-\s*(?:IP-CIDR6?|DOMAIN),)[^,\n]*(,DIRECT.*)$`)
 )
 
 // redirectLogs направляет stdout и stderr процесса в файл, чтобы журнал ядра
@@ -75,7 +78,9 @@ func Start(homeDir string, config string, tunFd int, p Protector) error {
 
 	fmt.Println("=== quietcore: версия Mihomo", constant.Version, "===")
 	fmt.Println("=== итоговый конфиг (логин, пароль и сервер скрыты) ===")
-	fmt.Println(secretRe.ReplaceAllString(string(cfg), `$1 "***"`))
+	shown := secretRe.ReplaceAllString(string(cfg), `$1 "***"`)
+	shown = ruleRe.ReplaceAllString(shown, `${1}***${2}`)
+	fmt.Println(shown)
 	fmt.Println("=== запуск ===")
 
 	if p != nil {
@@ -97,9 +102,34 @@ func Start(homeDir string, config string, tunFd int, p Protector) error {
 		_ = syscall.Close(fd)
 		return fmt.Errorf("запуск Mihomo: %w", err)
 	}
+
+	// Mihomo не возвращает ошибку, если туннель не поднялся, а только пишет её в журнал.
+	// Поэтому через полторы секунды проверяем журнал сами.
+	time.Sleep(1500 * time.Millisecond)
+	if line := findTunError(filepath.Join(homeDir, "core.log")); line != "" {
+		executor.Shutdown()
+		return errors.New(line)
+	}
+
 	running = true
 	fmt.Println("=== quietcore: ядро запущено ===")
 	return nil
+}
+
+func findTunError(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "Start TUN listening error") {
+			if i := strings.Index(line, "msg="); i >= 0 {
+				return strings.Trim(line[i+4:], `"`)
+			}
+			return line
+		}
+	}
+	return ""
 }
 
 // Stop останавливает ядро.

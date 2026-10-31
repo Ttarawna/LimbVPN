@@ -65,6 +65,7 @@ jobs:
           export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
           cp -r core mihomo/quietcore
           cd mihomo
+          python3 "$GITHUB_WORKSPACE/tools/patch_sing_tun.py"
           go get golang.org/x/mobile/bind@latest
           go install golang.org/x/mobile/cmd/gomobile@latest
           go install golang.org/x/mobile/cmd/gobind@latest
