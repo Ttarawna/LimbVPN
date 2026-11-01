@@ -55,6 +55,30 @@ class SettingsSheet extends StatelessWidget {
     );
   }
 
+  Future<void> _showExcluded(BuildContext context) async {
+    final text = (await app.vpn.readExcludedApps()).trim();
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Приложения без VPN'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: SelectableText(
+                text.isEmpty
+                    ? 'Список появится после подключения. Приложения определяются при каждом подключении.'
+                    : text,
+                style: const TextStyle(fontSize: 13)),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Закрыть')),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -114,6 +138,28 @@ class SettingsSheet extends StatelessWidget {
               onChanged: (v) => app.setFlag(Flag.autostart, v),
               title: const Text('Запускать при старте системы'),
             ),
+            if (app.vpn.hasAppExclusion) ...[
+              SwitchListTile(
+                value: app.excludeRuApps,
+                onChanged: (v) => app.setFlag(Flag.excludeRuApps, v),
+                title: const Text('Российские приложения без VPN'),
+                subtitle: const Text(
+                    'Банки, Госуслуги, магазины и другие российские приложения определяются автоматически и работают вне VPN, поэтому не видят его. Весь их трафик идёт напрямую.'),
+              ),
+              ListTile(
+                title: const Text('Какие приложения без VPN'),
+                trailing: const Icon(Icons.list_alt_outlined),
+                onTap: () => _showExcluded(context),
+              ),
+            ],
+            if (app.vpn.hasLog)
+              SwitchListTile(
+                value: app.debugMode,
+                onChanged: (v) => app.setFlag(Flag.debug, v),
+                title: const Text('Режим диагностики'),
+                subtitle: const Text(
+                    'Подробный журнал и самопроверки. Открывает локальные порты, которые российские приложения могут обнаружить. Держите выключенным.'),
+              ),
             if (app.vpn.hasLog)
               ListTile(
                 title: const Text('Журнал ядра'),
@@ -123,7 +169,7 @@ class SettingsSheet extends StatelessWidget {
                 onTap: () => _showLog(context),
               ),
             const ListTile(
-              title: Text('Версия 0.6.5'),
+              title: Text('Версия 0.7.0'),
               subtitle: Text(
                   'Изменения настроек применяются при следующем подключении.'),
             ),

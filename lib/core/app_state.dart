@@ -7,7 +7,7 @@ import 'config_builder.dart';
 import 'mieru_link.dart';
 import 'vpn_controller.dart';
 
-enum Flag { killSwitch, dnsProtection, blockIpv6, autostart }
+enum Flag { killSwitch, dnsProtection, blockIpv6, autostart, excludeRuApps, debug }
 
 class AppState extends ChangeNotifier {
   AppState(this._prefs, this.vpn) {
@@ -24,6 +24,8 @@ class AppState extends ChangeNotifier {
     dnsProtection = _prefs.getBool('dnsProtection') ?? true;
     blockIpv6 = _prefs.getBool('blockIpv6') ?? true;
     autostart = _prefs.getBool('autostart') ?? false;
+    excludeRuApps = _prefs.getBool('excludeRuApps') ?? true;
+    debugMode = _prefs.getBool('debug') ?? false;
   }
 
   final SharedPreferences _prefs;
@@ -34,6 +36,8 @@ class AppState extends ChangeNotifier {
   bool dnsProtection = true;
   bool blockIpv6 = true;
   bool autostart = false;
+  bool excludeRuApps = true;
+  bool debugMode = false;
 
   /// Бросает [LinkFormatException], если ссылка не подходит.
   /// TODO: хранить пароль в защищённом хранилище (Keychain / Keystore), а не в prefs.
@@ -60,6 +64,10 @@ class AppState extends ChangeNotifier {
         blockIpv6 = value;
       case Flag.autostart:
         autostart = value;
+      case Flag.excludeRuApps:
+        excludeRuApps = value;
+      case Flag.debug:
+        debugMode = value;
     }
     _prefs.setBool(flag.name, value);
     notifyListeners();
@@ -82,8 +90,10 @@ class AppState extends ChangeNotifier {
           serverIps: ips,
           dnsProtection: dnsProtection,
           blockIpv6: blockIpv6,
+          debug: debugMode,
         );
-        await vpn.connect(config, killSwitch: killSwitch);
+        await vpn.connect(config,
+            killSwitch: killSwitch, excludeRuApps: excludeRuApps, debug: debugMode);
       }
     } on SocketException {
       return 'Не удалось определить адрес сервера. Проверьте интернет.';

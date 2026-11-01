@@ -15,6 +15,12 @@ abstract class VpnController extends ChangeNotifier {
   /// Есть ли журнал ядра для диагностики.
   bool get hasLog => false;
 
+  /// Умеет ли платформа исключать приложения из VPN.
+  bool get hasAppExclusion => false;
+
+  /// Список приложений, работающих вне VPN (по одному на строку).
+  Future<String> readExcludedApps() async => '';
+
   Future<String> readLog() async => '';
 
   /// Открывает системные настройки VPN (на Android: «Блокировать соединения без VPN»).
@@ -22,7 +28,8 @@ abstract class VpnController extends ChangeNotifier {
 
   /// [config] — готовый YAML для Mihomo.
   /// [killSwitch] — блокировать зарубежный трафик при обрыве.
-  Future<void> connect(String config, {required bool killSwitch});
+  Future<void> connect(String config,
+      {required bool killSwitch, bool excludeRuApps = false, bool debug = false});
   Future<void> disconnect();
 }
 
@@ -38,7 +45,8 @@ class FakeVpnController extends VpnController {
   DateTime? get since => _since;
 
   @override
-  Future<void> connect(String config, {required bool killSwitch}) async {
+  Future<void> connect(String config,
+      {required bool killSwitch, bool excludeRuApps = false, bool debug = false}) async {
     debugPrint('Fake connect, config: ${config.length} символов, killSwitch=$killSwitch');
     _status = VpnStatus.connecting;
     notifyListeners();

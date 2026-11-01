@@ -27,6 +27,13 @@ class AndroidVpnController extends VpnController {
   bool get hasLog => true;
 
   @override
+  bool get hasAppExclusion => true;
+
+  @override
+  Future<String> readExcludedApps() async =>
+      await _channel.invokeMethod<String>('excludedApps') ?? '';
+
+  @override
   Future<String> readLog() async =>
       await _channel.invokeMethod<String>('readLog') ?? '';
 
@@ -56,14 +63,16 @@ class AndroidVpnController extends VpnController {
   }
 
   @override
-  Future<void> connect(String config, {required bool killSwitch}) async {
+  Future<void> connect(String config,
+      {required bool killSwitch, bool excludeRuApps = false, bool debug = false}) async {
     _set(VpnStatus.connecting);
     try {
       final granted = await _channel.invokeMethod<bool>('prepare') ?? false;
       if (!granted) {
         throw 'Нужно разрешение на создание VPN-подключения';
       }
-      await _channel.invokeMethod<void>('start', {'config': config});
+      await _channel.invokeMethod<void>(
+          'start', {'config': config, 'excludeRu': excludeRuApps, 'debug': debug});
     } on PlatformException catch (e) {
       _set(VpnStatus.off);
       throw e.message ?? 'Не удалось запустить ядро';

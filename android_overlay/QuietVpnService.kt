@@ -50,7 +50,11 @@ class QuietVpnService : VpnService() {
         when (intent?.action) {
             ACTION_START -> {
                 val config = intent.getStringExtra("config")
-                if (config == null) finish("error:Нет конфига") else start(config)
+                if (config == null) finish("error:Нет конфига") else start(
+                    config,
+                    intent.getBooleanExtra("excludeRu", true),
+                    intent.getBooleanExtra("debug", false)
+                )
             }
             ACTION_STOP -> finish("off")
         }
@@ -65,10 +69,10 @@ class QuietVpnService : VpnService() {
         sendBroadcast(Intent(ACTION_STATE).setPackage(packageName).putExtra("state", state))
     }
 
-    private fun start(config: String) {
+    private fun start(config: String, excludeRu: Boolean, debug: Boolean) {
         Thread {
             try {
-                startCore(config)
+                startCore(config, excludeRu, debug)
                 report("on")
             } catch (t: Throwable) {
                 finish("error:" + (t.message ?: t.toString()))
@@ -107,7 +111,7 @@ class QuietVpnService : VpnService() {
         }
     }
 
-    private fun startCore(config: String) {
+    private fun startCore(config: String, excludeRu: Boolean, debug: Boolean) {
         val home = File(filesDir, "mihomo").apply { mkdirs() }
         File(home, "app.log").delete()
         copyGeoFiles(home)
@@ -121,6 +125,32 @@ class QuietVpnService : VpnService() {
             .addAddress("fdfe:dcba:9876::1", 126)
             .addRoute("::", 0)
 
+        // В обычном режиме приложение и ядро в туннель не заворачиваем.
+        // В режиме диагностики оставляем, чтобы самопроверки шли через туннель.
+        if (!debug) {
+            try {
+                builder.addDisallowedApplication(packageName)
+            } catch (_: Exception) {
+            }
+        }
+
+        // Российские приложения работают вне VPN: так Android не сообщает им о VPN.
+        val excluded = ArrayList<String>()
+        if (excludeRu) {
+            for (app in RuApps.detect(this)) {
+                try {
+                    builder.addDisallowedApplication(app.pkg)
+                    excluded.add(app.label + " (" + app.pkg + ")")
+                } catch (_: Exception) {
+                }
+            }
+        }
+        try {
+            File(home, "excluded_apps.txt").writeText(excluded.joinToString("\n"))
+        } catch (_: Exception) {
+        }
+        note("Приложений вне VPN: " + excluded.size)
+
         val pfd = builder.establish() ?: throw IllegalStateException("Не удалось создать туннель")
         tun = pfd
         watchNetwork()
@@ -128,7 +158,7 @@ class QuietVpnService : VpnService() {
         val protector = object : Protector {
             override fun protect(fd: Long): Boolean = this@QuietVpnService.protect(fd.toInt())
         }
-        Quietcore.start(home.absolutePath, config, pfd.fd.toLong(), protector)
+        Quietcore.start(home.absolutePath, config, pfd.fd.toLong(), protector, debug)
     }
 
     /** Списки РФ кладутся в APK при сборке. Если их нет, Mihomo скачает сам. */

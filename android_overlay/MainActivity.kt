@@ -52,6 +52,8 @@ class MainActivity : FlutterActivity() {
                             Intent(this, QuietVpnService::class.java)
                                 .setAction(QuietVpnService.ACTION_START)
                                 .putExtra("config", config)
+                                .putExtra("excludeRu", call.argument<Boolean>("excludeRu") ?: true)
+                                .putExtra("debug", call.argument<Boolean>("debug") ?: false)
                         )
                     }
                 }
@@ -63,6 +65,10 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "status" -> result.success(QuietVpnService.readState(this))
+                "excludedApps" -> {
+                    val f = java.io.File(filesDir, "mihomo/excluded_apps.txt")
+                    result.success(try { if (f.exists()) f.readText() else "" } catch (e: Exception) { "" })
+                }
                 "readLog" -> {
                     val file = java.io.File(filesDir, "mihomo/core.log")
                     val androidNotes = try {

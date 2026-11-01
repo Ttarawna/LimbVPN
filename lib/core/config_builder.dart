@@ -14,6 +14,7 @@ String buildMihomoConfig(
   required List<String> serverIps,
   bool dnsProtection = true,
   bool blockIpv6 = true,
+  bool debug = false,
 }) {
   final b = StringBuffer();
   final excluded =
@@ -21,9 +22,10 @@ String buildMihomoConfig(
   final serverIsIp = InternetAddress.tryParse(p.server) != null;
   const ruDns = '[77.88.8.8, 77.88.8.1]';
 
-  b.writeln('mixed-port: 7890');
+  // Локальный порт прокси нужен только для диагностики: российские приложения умеют его находить.
+  if (debug) b.writeln('mixed-port: 7890');
   b.writeln('mode: rule');
-  b.writeln('log-level: debug');
+  b.writeln('log-level: ${debug ? "debug" : "warning"}');
   b.writeln('ipv6: ${!blockIpv6}');
   b.writeln('find-process-mode: off');
   b.writeln('geodata-mode: true');

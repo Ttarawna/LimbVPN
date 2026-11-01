@@ -60,7 +60,7 @@ func redirectLogs(path string) {
 func Version() string { return constant.Version }
 
 // Start запускает ядро. tunFd — дескриптор туннеля от VpnService.
-func Start(homeDir string, config string, tunFd int, p Protector) error {
+func Start(homeDir string, config string, tunFd int, p Protector, debug bool) error {
 	mu.Lock()
 	defer mu.Unlock()
 	if running {
@@ -75,7 +75,7 @@ func Start(homeDir string, config string, tunFd int, p Protector) error {
 		return fmt.Errorf("dup tun fd: %w", err)
 	}
 
-	cfg, err := patchConfig(config, fd)
+	cfg, err := patchConfig(config, fd, debug)
 	if err != nil {
 		_ = syscall.Close(fd)
 		return fmt.Errorf("конфиг: %w", err)
@@ -119,8 +119,10 @@ func Start(homeDir string, config string, tunFd int, p Protector) error {
 
 	running = true
 	fmt.Println("=== quietcore: ядро запущено ===")
-	go selfTest(cfg)
-	go tunProbeLoop()
+	if debug {
+		go selfTest(cfg)
+		go tunProbeLoop()
+	}
 	return nil
 }
 
@@ -182,7 +184,7 @@ func Stop() {
 
 // patchConfig подгоняет общий конфиг под Android: маршруты задаёт система (VpnService),
 // а туннель приходит готовым дескриптором.
-func patchConfig(raw string, fd int) ([]byte, error) {
+func patchConfig(raw string, fd int, debug bool) ([]byte, error) {
 	var m map[string]any
 	if err := yaml.Unmarshal([]byte(raw), &m); err != nil {
 		return nil, err
@@ -213,7 +215,8 @@ func patchConfig(raw string, fd int) ([]byte, error) {
 	tun["mtu"] = 9000
 	m["tun"] = tun
 	// Локальный DNS ядра нужен для самопроверки (напрямую его опрашивает только мы).
-	if dns, ok := m["dns"].(map[string]any); ok {
+	// Локальный порт DNS открываем только в режиме диагностики: его могут обнаружить.
+	if dns, ok := m["dns"].(map[string]any); ok && debug {
 		dns["listen"] = "127.0.0.1:1053"
 	}
 	return yaml.Marshal(m)

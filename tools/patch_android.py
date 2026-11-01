@@ -72,6 +72,7 @@ for old in (APP / "src" / "main" / "kotlin").rglob("MainActivity.*"):
 PACKAGE_DIR.mkdir(parents=True, exist_ok=True)
 shutil.copy(OVERLAY / "MainActivity.kt", PACKAGE_DIR / "MainActivity.kt")
 shutil.copy(OVERLAY / "QuietVpnService.kt", PACKAGE_DIR / "QuietVpnService.kt")
+shutil.copy(OVERLAY / "RuApps.kt", PACKAGE_DIR / "RuApps.kt")
 shutil.copy(OVERLAY / "AndroidManifest.xml", APP / "src" / "main" / "AndroidManifest.xml")
 
 (APP / "libs").mkdir(parents=True, exist_ok=True)
