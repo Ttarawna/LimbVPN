@@ -56,7 +56,11 @@ class MainActivity : FlutterActivity() {
                     val text = try {
                         if (!file.exists()) "Журнал пока пуст"
                         else {
-                            val all = file.readText()
+                            val noise = "check interface: permission denied"
+                            val lines = file.readLines()
+                            val skipped = lines.count { it.contains(noise) }
+                            val all = lines.filter { !it.contains(noise) }.joinToString("\n") +
+                                (if (skipped > 0) "\n(повторяющаяся строка 'check interface: permission denied' скрыта, раз: " + skipped + ")" else "")
                             if (all.length > 30000) all.take(6000) + "\n...\n" + all.takeLast(24000) else all
                         }
                     } catch (e: Exception) {

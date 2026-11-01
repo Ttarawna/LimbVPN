@@ -6,6 +6,8 @@ package quietcore
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -113,7 +115,34 @@ func Start(homeDir string, config string, tunFd int, p Protector) error {
 
 	running = true
 	fmt.Println("=== quietcore: ядро запущено ===")
+	go selfTest()
 	return nil
+}
+
+// selfTest проверяет работу цепочки без участия пользователя: один запрос идёт через
+// сервер mieru, другой напрямую. Запросы идут через локальный прокси самого ядра.
+func selfTest() {
+	time.Sleep(2 * time.Second)
+	proxy, _ := url.Parse("http://127.0.0.1:7890")
+	client := &http.Client{
+		Timeout:       20 * time.Second,
+		Transport:     &http.Transport{Proxy: http.ProxyURL(proxy)},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	tests := []struct{ name, target string }{
+		{"через VPN (gstatic.com)", "https://www.gstatic.com/generate_204"},
+		{"напрямую (ya.ru)", "https://ya.ru"},
+	}
+	for _, tc := range tests {
+		started := time.Now()
+		resp, err := client.Get(tc.target)
+		if err != nil {
+			fmt.Println("=== самопроверка:", tc.name, "ОШИБКА:", err, "===")
+			continue
+		}
+		_ = resp.Body.Close()
+		fmt.Println("=== самопроверка:", tc.name, "ответ", resp.StatusCode, "за", time.Since(started).Round(time.Millisecond), "===")
+	}
 }
 
 func findTunError(path string) string {
