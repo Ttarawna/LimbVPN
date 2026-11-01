@@ -1,5 +1,5 @@
 name: quiet_vpn
-description: Limb VPN: минималистичный VPN-клиент для протокола mieru.
+description: "Limb VPN: минималистичный VPN-клиент для протокола mieru."
 publish_to: none
 version: 0.8.1+1
 
