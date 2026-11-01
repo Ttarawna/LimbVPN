@@ -4,8 +4,10 @@
 package quietcore
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -123,6 +125,7 @@ func Start(homeDir string, config string, tunFd int, p Protector) error {
 // сервер mieru, другой напрямую. Запросы идут через локальный прокси самого ядра.
 func selfTest() {
 	time.Sleep(2 * time.Second)
+	dnsTest()
 	proxy, _ := url.Parse("http://127.0.0.1:7890")
 	client := &http.Client{
 		Timeout:       20 * time.Second,
@@ -201,6 +204,34 @@ func patchConfig(raw string, fd int) ([]byte, error) {
 		tun["inet6-address"] = []string{"fdfe:dcba:9876::1/126"}
 	}
 	tun["dns-hijack"] = []string{"any:53"}
+	tun["mtu"] = 9000
 	m["tun"] = tun
+	// Локальный DNS ядра нужен для самопроверки (напрямую его опрашивает только мы).
+	if dns, ok := m["dns"].(map[string]any); ok {
+		dns["listen"] = "127.0.0.1:1053"
+	}
 	return yaml.Marshal(m)
+}
+
+// dnsTest спрашивает DNS самого ядра: российский домен должен получить настоящий IP,
+// зарубежный фиктивный из диапазона 198.18.x.x.
+func dnsTest() {
+	r := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "udp", "127.0.0.1:1053")
+		},
+	}
+	for _, name := range []string{"dzen.ru", "example.com"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		started := time.Now()
+		addrs, err := r.LookupHost(ctx, name)
+		cancel()
+		if err != nil {
+			fmt.Println("=== самопроверка DNS:", name, "ОШИБКА:", err, "===")
+			continue
+		}
+		fmt.Println("=== самопроверка DNS:", name, "->", addrs, "за", time.Since(started).Round(time.Millisecond), "===")
+	}
 }

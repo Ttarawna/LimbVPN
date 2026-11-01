@@ -78,7 +78,7 @@ class QuietVpnService : VpnService() {
 
         val builder = Builder()
             .setSession("Quiet VPN")
-            .setMtu(1500)
+            .setMtu(9000)
             .addAddress("172.19.0.1", 30)
             .addRoute("0.0.0.0", 0)
             .addDnsServer("172.19.0.2")

@@ -73,7 +73,7 @@ class MainActivity : FlutterActivity() {
                             val skipped = lines.count { it.contains(noise) }
                             val all = lines.filter { !it.contains(noise) }.joinToString("\n") +
                                 (if (skipped > 0) "\n(повторяющаяся строка 'check interface: permission denied' скрыта, раз: " + skipped + ")" else "")
-                            if (all.length > 30000) all.take(6000) + "\n...\n" + all.takeLast(24000) else all
+                            if (all.length > 40000) all.take(7000) + "\n...\n" + all.takeLast(33000) else all
                         }
                     } catch (e: Exception) {
                         "Не удалось прочитать журнал: " + e.message
