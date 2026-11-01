@@ -2,6 +2,10 @@ package dev.quiet.quiet_vpn
 
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.os.Process
@@ -72,8 +76,40 @@ class QuietVpnService : VpnService() {
         }.start()
     }
 
+    /** Короткие записи о том, что Android думает о сети VPN (читаются вместе с журналом ядра). */
+    private fun note(text: String) {
+        try {
+            File(filesDir, "mihomo/app.log").appendText(text + "\n")
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun watchNetwork() {
+        try {
+            val cm = getSystemService(ConnectivityManager::class.java)
+            val request = NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                .build()
+            cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                    val internet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    note("Android: сеть VPN, интернет=" + internet + ", проверена системой=" + validated)
+                }
+
+                override fun onLost(network: Network) {
+                    note("Android: сеть VPN потеряна")
+                }
+            })
+        } catch (e: Exception) {
+            note("Android: не удалось следить за сетью: " + e.message)
+        }
+    }
+
     private fun startCore(config: String) {
         val home = File(filesDir, "mihomo").apply { mkdirs() }
+        File(home, "app.log").delete()
         copyGeoFiles(home)
 
         val builder = Builder()
@@ -92,6 +128,7 @@ class QuietVpnService : VpnService() {
 
         val pfd = builder.establish() ?: throw IllegalStateException("Не удалось создать туннель")
         tun = pfd
+        watchNetwork()
 
         val protector = object : Protector {
             override fun protect(fd: Long): Boolean = this@QuietVpnService.protect(fd.toInt())

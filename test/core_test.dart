@@ -50,7 +50,8 @@ void main() {
       final match = yaml.indexOf('MATCH,mieru');
       expect(server, lessThan(ru));
       expect(ru, lessThan(match));
-      expect(yaml, contains('port-range: "9998-9999"'));
+      expect(yaml, contains('port: 9998'));
+      expect(yaml, contains('port: 9999'));
     });
 
     test('для сервера-домена добавляет правило DOMAIN', () {

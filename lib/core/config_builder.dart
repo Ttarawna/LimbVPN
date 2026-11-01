@@ -68,8 +68,25 @@ String buildMihomoConfig(
 
   b.writeln('proxies:');
   final names = <String>[];
-  for (var i = 0; i < p.bindings.length; i++) {
-    final bind = p.bindings[i];
+  // Небольшой диапазон портов разворачиваем в отдельные прокси: группа fallback
+  // проверяет каждый порт и обходит те, что закрыты или заблокированы.
+  final entries = <PortBinding>[];
+  for (final bind in p.bindings) {
+    if (bind.isRange) {
+      final parts = bind.port.split('-');
+      final from = int.parse(parts[0]);
+      final to = int.parse(parts[1]);
+      if (to - from < 16) {
+        for (var port = from; port <= to; port++) {
+          entries.add(PortBinding('$port', bind.protocol));
+        }
+        continue;
+      }
+    }
+    entries.add(bind);
+  }
+  for (var i = 0; i < entries.length; i++) {
+    final bind = entries[i];
     final name = 'mieru-${i + 1}';
     names.add(name);
     b.writeln('  - name: $name');
@@ -92,7 +109,7 @@ String buildMihomoConfig(
   b.writeln('    type: fallback');
   b.writeln('    proxies: [${names.join(', ')}]');
   b.writeln('    url: https://www.gstatic.com/generate_204');
-  b.writeln('    interval: 300');
+  b.writeln('    interval: 120');
 
   // Порядок важен: сервер, локальные сети, РФ, остальное через VPN.
   b.writeln('rules:');

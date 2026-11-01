@@ -35,6 +35,7 @@ var (
 	mu      sync.Mutex
 	running bool
 	logFile *os.File
+	prot    Protector
 
 	secretRe = regexp.MustCompile(`(?m)^(\s*(?:-\s*)?(?:username|password|server):).*$`)
 	ruleRe   = regexp.MustCompile(`(?m)^(\s*-\s*(?:IP-CIDR6?|DOMAIN),)[^,\n]*(,DIRECT.*)$`)
@@ -87,6 +88,7 @@ func Start(homeDir string, config string, tunFd int, p Protector) error {
 	fmt.Println(shown)
 	fmt.Println("=== запуск ===")
 
+	prot = p
 	if p != nil {
 		dialer.DefaultSocketHook = func(network, address string, conn syscall.RawConn) error {
 			var protectErr error
@@ -117,15 +119,16 @@ func Start(homeDir string, config string, tunFd int, p Protector) error {
 
 	running = true
 	fmt.Println("=== quietcore: ядро запущено ===")
-	go selfTest()
+	go selfTest(cfg)
 	return nil
 }
 
 // selfTest проверяет работу цепочки без участия пользователя: один запрос идёт через
 // сервер mieru, другой напрямую. Запросы идут через локальный прокси самого ядра.
-func selfTest() {
+func selfTest(cfg []byte) {
 	time.Sleep(2 * time.Second)
 	dnsTest()
+	probeServer(cfg)
 	proxy, _ := url.Parse("http://127.0.0.1:7890")
 	client := &http.Client{
 		Timeout:       20 * time.Second,
@@ -233,5 +236,65 @@ func dnsTest() {
 			continue
 		}
 		fmt.Println("=== самопроверка DNS:", name, "->", addrs, "за", time.Since(started).Round(time.Millisecond), "===")
+	}
+}
+
+// probeServer пробует открыть TCP-соединение с каждым портом сервера mieru.
+// Адрес сервера в журнал не выводится, только номера портов и результат.
+func probeServer(cfg []byte) {
+	var m map[string]any
+	if yaml.Unmarshal(cfg, &m) != nil {
+		return
+	}
+	list, _ := m["proxies"].([]any)
+	seen := map[string]bool{}
+	for _, item := range list {
+		px, _ := item.(map[string]any)
+		if px == nil || fmt.Sprint(px["transport"]) != "TCP" {
+			continue
+		}
+		host := fmt.Sprint(px["server"])
+		var ports []int
+		if v, ok := px["port"]; ok {
+			var n int
+			_, _ = fmt.Sscan(fmt.Sprint(v), &n)
+			ports = append(ports, n)
+		}
+		if v, ok := px["port-range"]; ok {
+			var a, b int
+			if _, err := fmt.Sscanf(fmt.Sprint(v), "%d-%d", &a, &b); err == nil {
+				for n := a; n <= b && n-a < 20; n++ {
+					ports = append(ports, n)
+				}
+			}
+		}
+		for _, port := range ports {
+			key := net.JoinHostPort(host, fmt.Sprint(port))
+			if port <= 0 || seen[key] {
+				continue
+			}
+			seen[key] = true
+			d := net.Dialer{
+				Timeout: 4 * time.Second,
+				Control: func(network, address string, c syscall.RawConn) error {
+					if prot == nil {
+						return nil
+					}
+					return c.Control(func(fd uintptr) { prot.Protect(int(fd)) })
+				},
+			}
+			started := time.Now()
+			conn, err := d.Dial("tcp", key)
+			if err != nil {
+				reason := "порт закрыт или отклонил соединение"
+				if ne, ok := err.(net.Error); ok && ne.Timeout() {
+					reason = "таймаут (порт заблокирован или сервер не отвечает)"
+				}
+				fmt.Println("=== проверка порта", port, ": ОШИБКА,", reason, "===")
+				continue
+			}
+			_ = conn.Close()
+			fmt.Println("=== проверка порта", port, ": доступен за", time.Since(started).Round(time.Millisecond), "===")
+		}
 	}
 }
