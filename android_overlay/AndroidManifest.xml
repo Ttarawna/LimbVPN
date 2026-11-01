@@ -2,11 +2,17 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:name="${applicationName}"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
-        android:label="Quiet VPN">
+        android:label="Quiet VPN"
+        android:usesCleartextTraffic="false">
 
         <activity
             android:name=".MainActivity"
@@ -26,15 +32,31 @@
             </intent-filter>
         </activity>
 
+        <!-- Служба VPN: туннель, уведомление, kill switch. Отдельный процесс. -->
         <service
             android:name=".QuietVpnService"
             android:exported="false"
-            android:process=":vpn"
-            android:permission="android.permission.BIND_VPN_SERVICE">
+            android:foregroundServiceType="systemExempted"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:process=":vpn">
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
         </service>
+
+        <!-- Ядро Mihomo. Отдельный процесс: его падение не снимает блокировку трафика. -->
+        <service
+            android:name=".CoreService"
+            android:exported="false"
+            android:process=":core" />
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
         <meta-data
             android:name="flutterEmbedding"

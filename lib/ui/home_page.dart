@@ -63,6 +63,8 @@ class _HomePageState extends State<HomePage> {
     try {
       widget.app.importLink(_url.text);
       _url.clear();
+      // Ссылка с паролем не должна оставаться в буфере обмена.
+      Clipboard.setData(const ClipboardData(text: ''));
       setState(() => _error = null);
     } on LinkFormatException catch (e) {
       setState(() => _error = e.message);
@@ -109,6 +111,7 @@ class _HomePageState extends State<HomePage> {
         VpnStatus.connecting => 'Подключаю…',
         VpnStatus.on => 'Подключено',
         VpnStatus.disconnecting => 'Отключаю…',
+        VpnStatus.blocked => 'Трафик заблокирован',
       };
 
   @override
@@ -171,7 +174,7 @@ class _HomePageState extends State<HomePage> {
     final busy = status == VpnStatus.connecting || status == VpnStatus.disconnecting;
     return Semantics(
       button: true,
-      label: on ? 'Выключить VPN' : 'Включить VPN',
+      label: (on || status == VpnStatus.blocked) ? 'Выключить VPN' : 'Включить VPN',
       child: GestureDetector(
         onTap: busy ? null : _toggle,
         child: SizedBox(
@@ -220,6 +223,10 @@ class _HomePageState extends State<HomePage> {
         },
       );
     }
+    if (status == VpnStatus.blocked) {
+      return Text('Связь потеряна, пробую восстановить. Нажмите кнопку, чтобы отключить.',
+          textAlign: TextAlign.center, style: style);
+    }
     if (widget.app.profile == null && status == VpnStatus.off) {
       return Text('Добавьте профиль, чтобы начать', style: style);
     }
@@ -233,10 +240,10 @@ class _HomePageState extends State<HomePage> {
       child: p != null
           ? Column(
               children: [
-                Text(p.name,
+                Text(p.maskedName,
                     style: TextStyle(
                         color: c.fg, fontSize: 16, fontWeight: FontWeight.w500)),
-                Text(p.bindings.map((b) => '${b.port} ${b.protocol}').join(', '),
+                Text('Профиль хранится в зашифрованном виде',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: c.muted, fontSize: 14)),
                 TextButton(

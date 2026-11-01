@@ -70,9 +70,8 @@ gradle.write_text(text, encoding="utf-8")
 for old in (APP / "src" / "main" / "kotlin").rglob("MainActivity.*"):
     old.unlink()
 PACKAGE_DIR.mkdir(parents=True, exist_ok=True)
-shutil.copy(OVERLAY / "MainActivity.kt", PACKAGE_DIR / "MainActivity.kt")
-shutil.copy(OVERLAY / "QuietVpnService.kt", PACKAGE_DIR / "QuietVpnService.kt")
-shutil.copy(OVERLAY / "RuApps.kt", PACKAGE_DIR / "RuApps.kt")
+for kt in sorted(OVERLAY.glob("*.kt")):
+    shutil.copy(kt, PACKAGE_DIR / kt.name)
 shutil.copy(OVERLAY / "AndroidManifest.xml", APP / "src" / "main" / "AndroidManifest.xml")
 
 (APP / "libs").mkdir(parents=True, exist_ok=True)

@@ -5,16 +5,20 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.Build
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 class MainActivity : FlutterActivity() {
 
     private val requestVpn = 4711
+    private val requestNotifications = 4712
     private var channel: MethodChannel? = null
     private var pendingPrepare: MethodChannel.Result? = null
     private var pendingStart: MethodChannel.Result? = null
@@ -42,18 +46,32 @@ class MainActivity : FlutterActivity() {
                         startActivityForResult(intent, requestVpn)
                     }
                 }
+                "askNotifications" -> {
+                    if (Build.VERSION.SDK_INT >= 33 &&
+                        checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                        PackageManager.PERMISSION_GRANTED
+                    ) {
+                        requestPermissions(
+                            arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                            requestNotifications
+                        )
+                    }
+                    result.success(null)
+                }
                 "start" -> {
                     val config = call.argument<String>("config")
                     if (config == null) {
                         result.error("bad_args", "Нет конфига", null)
                     } else {
                         pendingStart = result
-                        startService(
+                        ContextCompat.startForegroundService(
+                            this,
                             Intent(this, QuietVpnService::class.java)
                                 .setAction(QuietVpnService.ACTION_START)
                                 .putExtra("config", config)
                                 .putExtra("excludeRu", call.argument<Boolean>("excludeRu") ?: true)
                                 .putExtra("debug", call.argument<Boolean>("debug") ?: false)
+                                .putExtra("killSwitch", call.argument<Boolean>("killSwitch") ?: true)
                         )
                     }
                 }
@@ -65,35 +83,40 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "status" -> result.success(QuietVpnService.readState(this))
-                "excludedApps" -> {
-                    val f = java.io.File(filesDir, "mihomo/excluded_apps.txt")
-                    result.success(try { if (f.exists()) f.readText() else "" } catch (e: Exception) { "" })
-                }
-                "readLog" -> {
-                    val file = java.io.File(filesDir, "mihomo/core.log")
-                    val androidNotes = try {
-                        val f = java.io.File(filesDir, "mihomo/app.log")
-                        if (f.exists()) f.readText() else ""
-                    } catch (e: Exception) {
-                        ""
-                    }
-                    val text = try {
-                        if (!file.exists()) "Журнал пока пуст"
-                        else {
-                            val noise = "check interface: permission denied"
-                            val lines = file.readLines()
-                            val skipped = lines.count { it.contains(noise) }
-                            val all = lines.filter { !it.contains(noise) }.joinToString("\n") +
-                                (if (skipped > 0) "\n(повторяющаяся строка 'check interface: permission denied' скрыта, раз: " + skipped + ")" else "")
-                            if (all.length > 40000) all.take(7000) + "\n...\n" + all.takeLast(33000) else all
-                        }
-                    } catch (e: Exception) {
-                        "Не удалось прочитать журнал: " + e.message
-                    }
-                    result.success(androidNotes + text)
-                }
+                "lockdown" -> result.success(readFile("mihomo/lockdown"))
+                "excludedApps" -> result.success(readFile("mihomo/excluded_apps.txt"))
+                "readLog" -> result.success(buildLogText())
                 "openVpnSettings" -> {
                     startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
+                    result.success(null)
+                }
+                "setAutostart" -> {
+                    getSharedPreferences("native", Context.MODE_PRIVATE).edit()
+                        .putBoolean("autostart", call.argument<Boolean>("enabled") ?: false)
+                        .apply()
+                    result.success(null)
+                }
+                "forgetSession" -> {
+                    SecureStore.delete(this, "session")
+                    result.success(null)
+                }
+                "secureGet" -> result.success(
+                    SecureStore.read(this, call.argument<String>("key") ?: "")
+                )
+                "secureSet" -> {
+                    try {
+                        SecureStore.write(
+                            this,
+                            call.argument<String>("key") ?: "",
+                            call.argument<String>("value") ?: ""
+                        )
+                        result.success(null)
+                    } catch (e: Exception) {
+                        result.error("secure_failed", e.message, null)
+                    }
+                }
+                "secureDelete" -> {
+                    SecureStore.delete(this, call.argument<String>("key") ?: "")
                     result.success(null)
                 }
                 else -> result.notImplemented()
@@ -119,6 +142,29 @@ class MainActivity : FlutterActivity() {
             receiverRegistered = false
         }
         super.cleanUpFlutterEngine(flutterEngine)
+    }
+
+    private fun readFile(path: String): String = try {
+        val f = File(filesDir, path)
+        if (f.exists()) f.readText() else ""
+    } catch (_: Exception) {
+        ""
+    }
+
+    private fun buildLogText(): String = try {
+        val file = File(filesDir, "mihomo/core.log")
+        if (!file.exists()) {
+            "Журнал пока пуст"
+        } else {
+            val noise = "check interface: permission denied"
+            val lines = file.readLines()
+            val skipped = lines.count { it.contains(noise) }
+            val all = lines.filter { !it.contains(noise) }.joinToString("\n") +
+                (if (skipped > 0) "\n(повторяющаяся строка скрыта, раз: $skipped)" else "")
+            if (all.length > 40000) all.take(7000) + "\n...\n" + all.takeLast(33000) else all
+        }
+    } catch (e: Exception) {
+        "Не удалось прочитать журнал: " + e.message
     }
 
     private fun onServiceState(state: String) {

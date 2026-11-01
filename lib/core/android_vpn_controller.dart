@@ -41,6 +41,7 @@ class AndroidVpnController extends VpnController {
     try {
       final s = await _channel.invokeMethod<String>('status');
       if (s == 'on') _set(VpnStatus.on);
+      if (s == 'blocked') _set(VpnStatus.blocked);
     } catch (_) {}
   }
 
@@ -49,6 +50,8 @@ class AndroidVpnController extends VpnController {
       final s = call.arguments as String;
       if (s == 'on') {
         _set(VpnStatus.on);
+      } else if (s == 'blocked') {
+        _set(VpnStatus.blocked);
       } else if (s == 'off' || s.startsWith('error:')) {
         _set(VpnStatus.off);
       }
@@ -71,8 +74,15 @@ class AndroidVpnController extends VpnController {
       if (!granted) {
         throw 'Нужно разрешение на создание VPN-подключения';
       }
-      await _channel.invokeMethod<void>(
-          'start', {'config': config, 'excludeRu': excludeRuApps, 'debug': debug});
+      try {
+        await _channel.invokeMethod<void>('askNotifications');
+      } catch (_) {}
+      await _channel.invokeMethod<void>('start', {
+        'config': config,
+        'excludeRu': excludeRuApps,
+        'debug': debug,
+        'killSwitch': killSwitch,
+      });
     } on PlatformException catch (e) {
       _set(VpnStatus.off);
       throw e.message ?? 'Не удалось запустить ядро';
@@ -87,6 +97,30 @@ class AndroidVpnController extends VpnController {
     _set(VpnStatus.disconnecting);
     await _channel.invokeMethod<void>('stop');
     // Состояние off придёт от службы.
+  }
+
+  @override
+  Future<bool?> lockdownEnabled() async {
+    try {
+      final s = await _channel.invokeMethod<String>('lockdown');
+      if (s == '1') return true;
+      if (s == '0') return false;
+    } catch (_) {}
+    return null;
+  }
+
+  @override
+  Future<void> setAutostart(bool enabled) async {
+    try {
+      await _channel.invokeMethod<void>('setAutostart', {'enabled': enabled});
+    } catch (_) {}
+  }
+
+  @override
+  Future<void> forgetSession() async {
+    try {
+      await _channel.invokeMethod<void>('forgetSession');
+    } catch (_) {}
   }
 
   @override

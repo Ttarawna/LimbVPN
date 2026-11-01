@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-enum VpnStatus { off, connecting, on, disconnecting }
+/// blocked: ядро потеряно, туннель закрыт для трафика (kill switch), идёт восстановление.
+enum VpnStatus { off, connecting, on, disconnecting, blocked }
 
 /// Единственная точка контакта интерфейса с ядром.
 /// Настоящая реализация (Android VpnService, Windows-служба и т.д.) появится позже
@@ -25,6 +26,15 @@ abstract class VpnController extends ChangeNotifier {
 
   /// Открывает системные настройки VPN (на Android: «Блокировать соединения без VPN»).
   Future<void> openSystemVpnSettings() async {}
+
+  /// Включена ли системная блокировка «без VPN». null, если неизвестно.
+  Future<bool?> lockdownEnabled() async => null;
+
+  /// Запускать VPN автоматически после перезагрузки телефона.
+  Future<void> setAutostart(bool enabled) async {}
+
+  /// Удаляет сохранённые для автозапуска параметры подключения.
+  Future<void> forgetSession() async {}
 
   /// [config] — готовый YAML для Mihomo.
   /// [killSwitch] — блокировать зарубежный трафик при обрыве.

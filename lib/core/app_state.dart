@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -5,21 +6,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'config_builder.dart';
 import 'mieru_link.dart';
+import 'secret_store.dart';
 import 'vpn_controller.dart';
 
 enum Flag { killSwitch, dnsProtection, blockIpv6, autostart, excludeRuApps, debug }
 
 class AppState extends ChangeNotifier {
-  AppState(this._prefs, this.vpn) {
+  AppState(this._prefs, this.vpn, this._secrets) {
     vpn.addListener(notifyListeners);
-    final saved = _prefs.getString('profile');
-    if (saved != null) {
-      try {
-        profile = MieruProfile.parse(saved);
-      } on LinkFormatException {
-        _prefs.remove('profile');
-      }
-    }
     killSwitch = _prefs.getBool('killSwitch') ?? true;
     dnsProtection = _prefs.getBool('dnsProtection') ?? true;
     blockIpv6 = _prefs.getBool('blockIpv6') ?? true;
@@ -29,6 +23,7 @@ class AppState extends ChangeNotifier {
   }
 
   final SharedPreferences _prefs;
+  final SecretStore _secrets;
   final VpnController vpn;
 
   MieruProfile? profile;
@@ -39,18 +34,54 @@ class AppState extends ChangeNotifier {
   bool excludeRuApps = true;
   bool debugMode = false;
 
+  /// Загружает профиль из защищённого хранилища. Вызывается один раз при запуске.
+  Future<void> load() async {
+    String? link;
+    try {
+      link = await _secrets.read('profile');
+    } catch (_) {}
+
+    // Перенос из старой версии, где профиль лежал в открытом виде.
+    final legacy = _prefs.getString('profile');
+    if (legacy != null) {
+      if (link == null) {
+        link = legacy;
+        try {
+          await _secrets.write('profile', legacy);
+        } catch (_) {}
+      }
+      await _prefs.remove('profile');
+    }
+
+    if (link != null) {
+      try {
+        profile = MieruProfile.parse(link);
+      } on LinkFormatException {
+        try {
+          await _secrets.delete('profile');
+        } catch (_) {}
+      }
+    }
+    unawaited(vpn.setAutostart(autostart));
+    notifyListeners();
+  }
+
   /// Бросает [LinkFormatException], если ссылка не подходит.
-  /// TODO: хранить пароль в защищённом хранилище (Keychain / Keystore), а не в prefs.
   void importLink(String raw) {
-    profile = MieruProfile.parse(raw);
-    _prefs.setString('profile', profile!.link);
+    final parsed = MieruProfile.parse(raw);
+    profile = parsed;
+    _secrets.write('profile', parsed.link).catchError((Object _) {});
     notifyListeners();
   }
 
   Future<void> deleteProfile() async {
-    if (vpn.status == VpnStatus.on) await vpn.disconnect();
+    final st = vpn.status;
+    if (st == VpnStatus.on || st == VpnStatus.blocked) await vpn.disconnect();
     profile = null;
-    await _prefs.remove('profile');
+    try {
+      await _secrets.delete('profile');
+    } catch (_) {}
+    await vpn.forgetSession();
     notifyListeners();
   }
 
@@ -64,6 +95,7 @@ class AppState extends ChangeNotifier {
         blockIpv6 = value;
       case Flag.autostart:
         autostart = value;
+        unawaited(vpn.setAutostart(value));
       case Flag.excludeRuApps:
         excludeRuApps = value;
       case Flag.debug:
@@ -80,7 +112,7 @@ class AppState extends ChangeNotifier {
     final st = vpn.status;
     if (st == VpnStatus.connecting || st == VpnStatus.disconnecting) return null;
     try {
-      if (st == VpnStatus.on) {
+      if (st == VpnStatus.on || st == VpnStatus.blocked) {
         await vpn.disconnect();
       } else {
         // Адрес сервера определяем ДО туннеля, чтобы исключить его из туннеля.

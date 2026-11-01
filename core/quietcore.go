@@ -26,6 +26,7 @@ import (
 )
 
 // Protector реализуется на стороне Kotlin и вызывает VpnService.protect(fd).
+// Получает КОПИЮ дескриптора и обязан её закрыть.
 // Защищённые сокеты идут мимо туннеля: так трафик к серверу mieru не зацикливается.
 type Protector interface {
 	Protect(fd int) bool
@@ -54,6 +55,16 @@ func redirectLogs(path string) {
 		_ = logFile.Close()
 	}
 	logFile = f
+}
+
+// protectFd отправляет на защиту копию сокета: Kotlin закрывает её сам,
+// а оригинал остаётся у ядра.
+func protectFd(p Protector, f uintptr) bool {
+	nfd, err := syscall.Dup(int(f))
+	if err != nil {
+		return false
+	}
+	return p.Protect(nfd)
 }
 
 // Version возвращает версию встроенного ядра Mihomo.
@@ -93,7 +104,7 @@ func Start(homeDir string, config string, tunFd int, p Protector, debug bool) er
 		dialer.DefaultSocketHook = func(network, address string, conn syscall.RawConn) error {
 			var protectErr error
 			if err := conn.Control(func(f uintptr) {
-				if !p.Protect(int(f)) {
+				if !protectFd(p, f) {
 					protectErr = errors.New("не удалось защитить сокет")
 				}
 			}); err != nil {
@@ -286,7 +297,7 @@ func probeServer(cfg []byte) {
 					if prot == nil {
 						return nil
 					}
-					return c.Control(func(fd uintptr) { prot.Protect(int(fd)) })
+					return c.Control(func(fd uintptr) { protectFd(prot, fd) })
 				},
 			}
 			started := time.Now()

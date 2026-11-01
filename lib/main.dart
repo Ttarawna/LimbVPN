@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/android_vpn_controller.dart';
 import 'core/app_state.dart';
+import 'core/secret_store.dart';
 import 'core/vpn_controller.dart';
 import 'ui/home_page.dart';
 
@@ -14,7 +15,10 @@ Future<void> main() async {
   // На Android работает настоящее ядро, на остальных платформах пока имитация.
   final VpnController vpn =
       Platform.isAndroid ? AndroidVpnController() : FakeVpnController();
-  final app = AppState(prefs, vpn);
+  final SecretStore secrets =
+      Platform.isAndroid ? ChannelSecretStore() : PrefsSecretStore(prefs);
+  final app = AppState(prefs, vpn, secrets);
+  await app.load();
   runApp(QuietApp(app: app));
 }
 

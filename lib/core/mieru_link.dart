@@ -46,6 +46,16 @@ class MieruProfile {
 
   String get name => server;
 
+  /// Адрес сервера для показа на экране: часть символов скрыта.
+  String get maskedName {
+    final parts = server.split('.');
+    if (parts.length == 4 && parts.every((p) => int.tryParse(p) != null)) {
+      return '${parts[0]}.•••.•••.${parts[3]}';
+    }
+    if (server.length <= 4) return '••••';
+    return '${server[0]}•••${server.substring(server.length - 4)}';
+  }
+
   static MieruProfile parse(String raw) {
     final text = raw.trim();
     if (text.startsWith('mieru://')) {
