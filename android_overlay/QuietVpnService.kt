@@ -120,11 +120,6 @@ class QuietVpnService : VpnService() {
             .addDnsServer("172.19.0.2")
             .addAddress("fdfe:dcba:9876::1", 126)
             .addRoute("::", 0)
-        try {
-            // Само приложение (и ядро внутри него) в туннель не заворачиваем.
-            builder.addDisallowedApplication(packageName)
-        } catch (_: Exception) {
-        }
 
         val pfd = builder.establish() ?: throw IllegalStateException("Не удалось создать туннель")
         tun = pfd

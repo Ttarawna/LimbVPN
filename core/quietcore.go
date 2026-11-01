@@ -120,6 +120,7 @@ func Start(homeDir string, config string, tunFd int, p Protector) error {
 	running = true
 	fmt.Println("=== quietcore: ядро запущено ===")
 	go selfTest(cfg)
+	go tunProbeLoop()
 	return nil
 }
 
@@ -297,4 +298,48 @@ func probeServer(cfg []byte) {
 			fmt.Println("=== проверка порта", port, ": доступен за", time.Since(started).Round(time.Millisecond), "===")
 		}
 	}
+}
+
+// tunProbeLoop раз в 5 секунд шлёт обычные (не защищённые) пакеты. Они идут через
+// туннель так же, как пакеты любого приложения, и показывают, живёт ли путь пакетов.
+func tunProbeLoop() {
+	time.Sleep(3 * time.Second)
+	for i := 1; i <= 12; i++ {
+		fmt.Println("=== тест туннеля", i, ":", probeTunDNS(), "|", probeTunTCP(), "===")
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func probeTunDNS() string {
+	conn, err := net.DialTimeout("udp", "172.19.0.2:53", 2*time.Second)
+	if err != nil {
+		return "DNS: ошибка соединения"
+	}
+	defer conn.Close()
+	query := []byte{
+		0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0,
+		7, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 3, 'c', 'o', 'm', 0,
+		0, 1, 0, 1,
+	}
+	started := time.Now()
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conn.Write(query); err != nil {
+		return "DNS: ошибка отправки"
+	}
+	buf := make([]byte, 512)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return "DNS: нет ответа за 2с"
+	}
+	return fmt.Sprintf("DNS: ответ %d байт за %v", n, time.Since(started).Round(time.Millisecond))
+}
+
+func probeTunTCP() string {
+	started := time.Now()
+	conn, err := net.DialTimeout("tcp", "1.1.1.1:443", 4*time.Second)
+	if err != nil {
+		return "TCP: нет соединения за 4с"
+	}
+	_ = conn.Close()
+	return fmt.Sprintf("TCP: соединение за %v", time.Since(started).Round(time.Millisecond))
 }
