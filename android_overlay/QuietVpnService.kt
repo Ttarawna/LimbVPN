@@ -1,65 +1,75 @@
 package dev.quiet.quiet_vpn
 
+import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
+import android.os.Process
 import quietcore.Protector
 import quietcore.Quietcore
 import java.io.File
 
 /**
- * Создаёт туннель и отдаёт его ядру Mihomo.
- * Состояния для интерфейса: "on", "off", "error:<текст>".
+ * Работает в отдельном процессе (:vpn). Ядро Mihomo не умеет чисто останавливаться,
+ * поэтому отключение = закрыть туннель и завершить этот процесс. Интерфейс не страдает.
+ * Состояния: "on", "off", "error:<текст>". Передаются широковещательным сообщением
+ * и записью в файл (по нему интерфейс узнаёт состояние после перезапуска).
  */
 class QuietVpnService : VpnService() {
 
     companion object {
         const val ACTION_START = "dev.quiet.quiet_vpn.START"
         const val ACTION_STOP = "dev.quiet.quiet_vpn.STOP"
+        const val ACTION_STATE = "dev.quiet.quiet_vpn.STATE"
 
-        @Volatile
-        var listener: ((String) -> Unit)? = null
+        private fun stateFile(ctx: Context) = File(ctx.filesDir, "vpn_state")
 
-        @Volatile
-        var current: String = "off"
-
-        fun report(state: String) {
-            current = state
-            listener?.invoke(state)
+        /** Текущее состояние. Если процесс службы уже мёртв, "on" не верим. */
+        fun readState(ctx: Context): String {
+            return try {
+                val parts = stateFile(ctx).readText().split("|")
+                val state = parts[0]
+                val pid = parts.getOrNull(1)?.toIntOrNull()
+                if (state == "on" && (pid == null || !File("/proc/$pid").exists())) "off" else state
+            } catch (_: Exception) {
+                "off"
+            }
         }
     }
 
     private var tun: ParcelFileDescriptor? = null
-    private var worker: Thread? = null
+
+    @Volatile
+    private var finishing = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
                 val config = intent.getStringExtra("config")
-                if (config == null) {
-                    report("error:Нет конфига")
-                } else {
-                    start(config)
-                }
+                if (config == null) finish("error:Нет конфига") else start(config)
             }
-            ACTION_STOP -> {
-                stopAll()
-                report("off")
-            }
+            ACTION_STOP -> finish("off")
         }
         return START_NOT_STICKY
     }
 
+    private fun report(state: String) {
+        try {
+            stateFile(this).writeText(state + "|" + Process.myPid())
+        } catch (_: Exception) {
+        }
+        sendBroadcast(Intent(ACTION_STATE).setPackage(packageName).putExtra("state", state))
+    }
+
     private fun start(config: String) {
-        worker = Thread {
+        Thread {
             try {
                 startCore(config)
                 report("on")
             } catch (t: Throwable) {
-                stopAll()
-                report("error:" + (t.message ?: t.toString()))
+                finish("error:" + (t.message ?: t.toString()))
             }
-        }.also { it.start() }
+        }.start()
     }
 
     private fun startCore(config: String) {
@@ -103,27 +113,32 @@ class QuietVpnService : VpnService() {
         }
     }
 
-    private fun stopAll() {
-        try {
-            Quietcore.stop()
-        } catch (_: Throwable) {
-        }
+    /** Закрывает туннель, сообщает итоговое состояние и завершает процесс службы. */
+    private fun finish(finalState: String) {
+        if (finishing) return
+        finishing = true
         try {
             tun?.close()
         } catch (_: Exception) {
         }
         tun = null
+        report(finalState)
         stopSelf()
+        Thread {
+            try {
+                Thread.sleep(400)
+            } catch (_: InterruptedException) {
+            }
+            Process.killProcess(Process.myPid())
+        }.start()
     }
 
     override fun onRevoke() {
-        stopAll()
-        report("off")
+        finish("off")
     }
 
     override fun onDestroy() {
-        stopAll()
-        report("off")
+        if (!finishing) finish("off")
         super.onDestroy()
     }
 }

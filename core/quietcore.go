@@ -165,6 +165,7 @@ func findTunError(path string) string {
 func Stop() {
 	mu.Lock()
 	defer mu.Unlock()
+	defer func() { _ = recover() }()
 	if !running {
 		return
 	}

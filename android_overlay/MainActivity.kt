@@ -1,9 +1,13 @@
 package dev.quiet.quiet_vpn
 
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.VpnService
 import android.provider.Settings
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -14,6 +18,14 @@ class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
     private var pendingPrepare: MethodChannel.Result? = null
     private var pendingStart: MethodChannel.Result? = null
+    private var receiverRegistered = false
+
+    // Служба работает в другом процессе и сообщает состояние широковещательными сообщениями.
+    private val stateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            intent?.getStringExtra("state")?.let { onServiceState(it) }
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -50,7 +62,7 @@ class MainActivity : FlutterActivity() {
                     )
                     result.success(null)
                 }
-                "status" -> result.success(QuietVpnService.current)
+                "status" -> result.success(QuietVpnService.readState(this))
                 "readLog" -> {
                     val file = java.io.File(filesDir, "mihomo/core.log")
                     val text = try {
@@ -75,7 +87,26 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
-        QuietVpnService.listener = { state -> runOnUiThread { onServiceState(state) } }
+        if (!receiverRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                stateReceiver,
+                IntentFilter(QuietVpnService.ACTION_STATE),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            receiverRegistered = true
+        }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        if (receiverRegistered) {
+            try {
+                unregisterReceiver(stateReceiver)
+            } catch (_: Exception) {
+            }
+            receiverRegistered = false
+        }
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     private fun onServiceState(state: String) {
