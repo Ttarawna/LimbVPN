@@ -2,7 +2,7 @@ import 'package:flutter/services.dart';
 
 import 'vpn_controller.dart';
 
-/// Настоящий контроллер для Android: общается с QuietVpnService через MethodChannel.
+/// Настоящий контроллер для Android: общается со службой VPN через MethodChannel.
 class AndroidVpnController extends VpnController {
   AndroidVpnController() {
     _channel.setMethodCallHandler(_onCall);
@@ -25,6 +25,26 @@ class AndroidVpnController extends VpnController {
 
   @override
   bool get hasLog => true;
+
+  @override
+  bool get hasAutostart => true;
+
+  @override
+  Future<int?> bootCount() async {
+    try {
+      final n = await _channel.invokeMethod<int>('bootCount');
+      return (n == null || n < 0) ? null : n;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> openAutostartSettings() async {
+    try {
+      await _channel.invokeMethod<void>('openAutostartSettings');
+    } catch (_) {}
+  }
 
   @override
   bool get hasAppExclusion => true;

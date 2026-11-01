@@ -74,6 +74,10 @@ for kt in sorted(OVERLAY.glob("*.kt")):
     shutil.copy(kt, PACKAGE_DIR / kt.name)
 shutil.copy(OVERLAY / "AndroidManifest.xml", APP / "src" / "main" / "AndroidManifest.xml")
 
+# Иконка приложения и другие ресурсы
+if (OVERLAY / "res").exists():
+    shutil.copytree(OVERLAY / "res", APP / "src" / "main" / "res", dirs_exist_ok=True)
+
 (APP / "libs").mkdir(parents=True, exist_ok=True)
 (APP / "src" / "main" / "assets" / "geo").mkdir(parents=True, exist_ok=True)
 print("Android-проект доработан:", gradle)

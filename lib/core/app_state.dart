@@ -64,6 +64,21 @@ class AppState extends ChangeNotifier {
     }
     unawaited(vpn.setAutostart(autostart));
     notifyListeners();
+    unawaited(_autostartFallback());
+  }
+
+  /// Запасной путь автозапуска. Некоторые оболочки (например, у Xiaomi) не дают
+  /// приложению запуститься при загрузке телефона. Тогда подключаемся при первом
+  /// открытии приложения после перезагрузки.
+  Future<void> _autostartFallback() async {
+    if (!autostart || profile == null) return;
+    final count = await vpn.bootCount();
+    if (count == null) return;
+    final last = _prefs.getInt('lastBootCount');
+    await _prefs.setInt('lastBootCount', count);
+    if (last == null || last == count) return; // перезагрузки не было
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    if (vpn.status == VpnStatus.off) await toggle();
   }
 
   /// Бросает [LinkFormatException], если ссылка не подходит.

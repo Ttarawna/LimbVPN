@@ -19,11 +19,11 @@ Future<void> main() async {
       Platform.isAndroid ? ChannelSecretStore() : PrefsSecretStore(prefs);
   final app = AppState(prefs, vpn, secrets);
   await app.load();
-  runApp(QuietApp(app: app));
+  runApp(LimbApp(app: app));
 }
 
-class QuietApp extends StatelessWidget {
-  const QuietApp({super.key, required this.app});
+class LimbApp extends StatelessWidget {
+  const LimbApp({super.key, required this.app});
 
   final AppState app;
 
@@ -35,7 +35,7 @@ class QuietApp extends StatelessWidget {
           colorSchemeSeed: const Color(0xFF1F7A6E),
         );
     return MaterialApp(
-      title: 'Quiet VPN',
+      title: 'Limb VPN',
       debugShowCheckedModeBanner: false,
       theme: theme(Brightness.light),
       darkTheme: theme(Brightness.dark),

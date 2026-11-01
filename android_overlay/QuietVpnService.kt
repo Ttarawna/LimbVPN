@@ -4,9 +4,11 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.graphics.drawable.Icon
 import android.net.VpnService
@@ -18,6 +20,7 @@ import android.os.Looper
 import android.os.Parcel
 import android.os.ParcelFileDescriptor
 import android.os.Process
+import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.CountDownLatch
@@ -100,6 +103,31 @@ class QuietVpnService : VpnService() {
 
     private var retryDelayMs = 3000L
 
+    @Volatile
+    private var rebuilding = false
+
+    private var packageReceiverRegistered = false
+
+    // Новое российское приложение появилось, пока VPN работает: его нужно добавить в
+    // исключения. Список исключений задаётся при создании туннеля, поэтому туннель
+    // пересоздаётся (на пару секунд трафик блокируется).
+    private val packageReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val i = intent ?: return
+            if (i.action != Intent.ACTION_PACKAGE_ADDED) return
+            if (i.getBooleanExtra(Intent.EXTRA_REPLACING, false)) return
+            val pkg = i.data?.schemeSpecificPart ?: return
+            val s = session ?: return
+            if (!s.excludeRu || !everOn || finishing) return
+            if (RuApps.isRussian(this@QuietVpnService, pkg)) {
+                handler.removeCallbacks(rebuildRunnable)
+                handler.postDelayed(rebuildRunnable, 2500)
+            }
+        }
+    }
+
+    private val rebuildRunnable = Runnable { rebuildTunnel() }
+
     // Принимает от ядра запросы «защитить сокет», чтобы он шёл мимо туннеля.
     private val protectBinder = object : Binder() {
         override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
@@ -147,8 +175,10 @@ class QuietVpnService : VpnService() {
             }
             // Автозапуск, «Всегда включённый VPN» от системы или перезапуск после сбоя
             ACTION_START_SAVED, VpnService.SERVICE_INTERFACE, null -> {
+                BootReceiver.log(this, "служба VPN: запуск с сохранёнными параметрами")
                 val s = SecureStore.read(this, "session")?.let { Session.fromJson(it) }
                 if (s == null) {
+                    BootReceiver.log(this, "нет сохранённых параметров подключения")
                     startForegroundCompat("Нет сохранённого профиля")
                     finish("error:Нет сохранённого профиля")
                 } else {
@@ -176,6 +206,7 @@ class QuietVpnService : VpnService() {
                 startCoreProcess(s, pfd)
                 everOn = true
                 setState("on")
+                registerPackageReceiver(s)
             } catch (t: Throwable) {
                 val msg = t.message ?: t.toString()
                 if (!fromUser && s.killSwitch && tun != null && !finishing) {
@@ -192,7 +223,7 @@ class QuietVpnService : VpnService() {
     private fun buildTunnel(s: Session): ParcelFileDescriptor {
         val home = File(filesDir, "mihomo").apply { mkdirs() }
         val builder = Builder()
-            .setSession("Quiet VPN")
+            .setSession("Limb VPN")
             .setMtu(9000)
             .addAddress("172.19.0.1", 30)
             .addRoute("0.0.0.0", 0)
@@ -278,7 +309,7 @@ class QuietVpnService : VpnService() {
 
     /** Процесс ядра завершился. */
     private fun onCoreGone() {
-        if (finishing || !everOn) return
+        if (finishing || !everOn || rebuilding) return
         core = null
         val s = session ?: return
         if (s.killSwitch && tun != null) {
@@ -318,6 +349,67 @@ class QuietVpnService : VpnService() {
         }.start()
     }
 
+    private fun registerPackageReceiver(s: Session) {
+        if (!s.excludeRu || packageReceiverRegistered) return
+        try {
+            val filter = IntentFilter(Intent.ACTION_PACKAGE_ADDED).apply { addDataScheme("package") }
+            ContextCompat.registerReceiver(this, packageReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
+            packageReceiverRegistered = true
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun unregisterPackageReceiver() {
+        if (!packageReceiverRegistered) return
+        try {
+            unregisterReceiver(packageReceiver)
+        } catch (_: Exception) {
+        }
+        packageReceiverRegistered = false
+    }
+
+    /** Пересоздаёт туннель с обновлённым списком приложений вне VPN и перезапускает ядро. */
+    private fun rebuildTunnel() {
+        if (finishing) return
+        val s = session ?: return
+        Thread {
+            rebuilding = true
+            try {
+                updateNotification("Обновляю список приложений…")
+                val old = tun
+                buildTunnel(s) // новый туннель заменяет прежний
+                try {
+                    old?.close()
+                } catch (_: Exception) {
+                }
+                try {
+                    core?.let { b ->
+                        val d = Parcel.obtain()
+                        d.writeInterfaceToken(Ipc.DESCRIPTOR)
+                        b.transact(Ipc.CORE_STOP, d, null, IBinder.FLAG_ONEWAY)
+                        d.recycle()
+                    }
+                } catch (_: Exception) {
+                }
+                core = null
+                Thread.sleep(700)
+                coreConn?.let {
+                    try {
+                        unbindService(it)
+                    } catch (_: Exception) {
+                    }
+                }
+                startCoreProcess(s, tun ?: throw IllegalStateException("Нет туннеля"))
+                everOn = true
+                setState("on")
+            } catch (t: Throwable) {
+                if (s.killSwitch && tun != null) enterBlocked() else finish("error:" + (t.message ?: t.toString()))
+            } finally {
+                rebuilding = false
+            }
+        }.start()
+    }
+
     // ---------------------------------------------------------------- завершение
 
     /** Закрывает туннель, сообщает итоговое состояние и завершает процессы службы и ядра. */
@@ -325,6 +417,7 @@ class QuietVpnService : VpnService() {
         if (finishing) return
         finishing = true
         handler.removeCallbacksAndMessages(null)
+        unregisterPackageReceiver()
         try {
             core?.let { b ->
                 val d = Parcel.obtain()
@@ -402,7 +495,7 @@ class QuietVpnService : VpnService() {
         val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL)
         else Notification.Builder(this)
         b.setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setContentTitle("Quiet VPN")
+            .setContentTitle("Limb VPN")
             .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)

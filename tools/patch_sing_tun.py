@@ -16,7 +16,7 @@ MOD = "github.com/metacubex/sing-tun"
 
 STUB = '''
 
-// ---- Quiet VPN: на Android монитор сети отключён (netlink там запрещён) ----
+// ---- Limb VPN: на Android монитор сети отключён (netlink там запрещён) ----
 func NewNetworkUpdateMonitor(logger logger.Logger) (NetworkUpdateMonitor, error) {
 	if runtime.GOOS == "android" {
 		return &noopNetworkUpdateMonitor{}, nil

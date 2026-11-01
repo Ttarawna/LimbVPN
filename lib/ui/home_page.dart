@@ -76,6 +76,23 @@ class _HomePageState extends State<HomePage> {
     if (data?.text != null) _url.text = data!.text!.trim();
   }
 
+  void _setAutostart(bool value) {
+    widget.app.setFlag(Flag.autostart, value);
+    if (value && widget.app.vpn.hasAutostart) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 8),
+          content: const Text(
+              'Если после перезагрузки VPN не включится сам, разрешите автозапуск для Limb VPN в настройках телефона.'),
+          action: SnackBarAction(
+            label: 'Открыть',
+            onPressed: widget.app.vpn.openAutostartSettings,
+          ),
+        ),
+      );
+    }
+  }
+
   Future<void> _delete() async {
     if (!_confirmDelete) {
       setState(() => _confirmDelete = true);
@@ -250,6 +267,21 @@ class _HomePageState extends State<HomePage> {
                   onPressed: _delete,
                   child: Text(_confirmDelete ? 'Точно удалить?' : 'Удалить профиль',
                       style: TextStyle(color: c.muted)),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Flexible(
+                      child: Text('Запускать при старте телефона',
+                          style: TextStyle(color: c.muted, fontSize: 14)),
+                    ),
+                    const SizedBox(width: 8),
+                    Switch(
+                      value: widget.app.autostart,
+                      onChanged: _setAutostart,
+                    ),
+                  ],
                 ),
               ],
             )

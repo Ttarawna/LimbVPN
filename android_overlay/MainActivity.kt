@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.provider.Settings
@@ -86,6 +87,17 @@ class MainActivity : FlutterActivity() {
                 "lockdown" -> result.success(readFile("mihomo/lockdown"))
                 "excludedApps" -> result.success(readFile("mihomo/excluded_apps.txt"))
                 "readLog" -> result.success(buildLogText())
+                "bootCount" -> result.success(
+                    try {
+                        Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT, -1)
+                    } catch (_: Exception) {
+                        -1
+                    }
+                )
+                "openAutostartSettings" -> {
+                    openAutostartSettings()
+                    result.success(null)
+                }
                 "openVpnSettings" -> {
                     startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
                     result.success(null)
@@ -144,6 +156,38 @@ class MainActivity : FlutterActivity() {
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
+    /** Открывает экран разрешения автозапуска (у Xiaomi и других оболочек он отдельный). */
+    private fun openAutostartSettings() {
+        val candidates = listOf(
+            Intent().setClassName(
+                "com.miui.securitycenter",
+                "com.miui.permcenter.autostart.AutoStartManagementActivity"
+            ),
+            Intent().setClassName(
+                "com.huawei.systemmanager",
+                "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"
+            ),
+            Intent().setClassName(
+                "com.coloros.safecenter",
+                "com.coloros.safecenter.permission.startup.StartupAppListActivity"
+            ),
+            Intent().setClassName(
+                "com.vivo.permissionmanager",
+                "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"
+            )
+        )
+        for (i in candidates) {
+            try {
+                startActivity(i)
+                return
+            } catch (_: Exception) {
+            }
+        }
+        startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+        )
+    }
+
     private fun readFile(path: String): String = try {
         val f = File(filesDir, path)
         if (f.exists()) f.readText() else ""
@@ -152,16 +196,18 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun buildLogText(): String = try {
+        val boot = readFile("boot.log").trim()
+        val bootPart = if (boot.isEmpty()) "" else "=== журнал автозапуска ===\n$boot\n\n"
         val file = File(filesDir, "mihomo/core.log")
         if (!file.exists()) {
-            "Журнал пока пуст"
+            bootPart + "Журнал ядра пока пуст"
         } else {
             val noise = "check interface: permission denied"
             val lines = file.readLines()
             val skipped = lines.count { it.contains(noise) }
             val all = lines.filter { !it.contains(noise) }.joinToString("\n") +
                 (if (skipped > 0) "\n(повторяющаяся строка скрыта, раз: $skipped)" else "")
-            if (all.length > 40000) all.take(7000) + "\n...\n" + all.takeLast(33000) else all
+            bootPart + (if (all.length > 40000) all.take(7000) + "\n...\n" + all.takeLast(33000) else all)
         }
     } catch (e: Exception) {
         "Не удалось прочитать журнал: " + e.message

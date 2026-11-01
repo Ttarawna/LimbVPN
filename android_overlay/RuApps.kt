@@ -6,9 +6,9 @@ import android.content.pm.PackageManager
 import android.os.Build
 
 /**
- * Автоматически находит установленные российские приложения. Их исключают из VPN,
+ * Автоматически находит российские приложения. Их исключают из VPN,
  * потому что только так Android перестаёт сообщать им, что VPN включён.
- * Определение по имени пакета и по магазину RuStore. Список можно дополнять.
+ * Признаки: имя пакета, магазин RuStore, название бренда в имени приложения.
  */
 object RuApps {
 
@@ -32,32 +32,58 @@ object RuApps {
         "com.vkontakte.android", "ru.rostel"
     )
 
+    // Названия российских брендов (начало названия приложения, регистр не важен).
+    // Нужны для приложений, у которых имя пакета не говорит о России.
+    private val brands = listOf(
+        "вкусно", "ростикс", "rostic", "додо", "dodo", "самокат", "купер", "вкусвилл",
+        "бургер кинг", "пятёрочка", "пятерочка", "перекрёсток", "перекресток",
+        "сбер", "sber", "тинькофф", "т-банк", "t-bank", "tinkoff", "втб", "vtb",
+        "альфа-банк", "альфа банк", "газпромбанк", "райффайзен", "росбанк",
+        "мтс", "билайн", "мегафон", "tele2", "теле2", "госуслуги", "почта россии",
+        "ржд", "аэрофлот", "wildberries", "вайлдберриз", "ozon", "озон", "авито", "avito",
+        "вконтакте", "яндекс", "дзен", "2гис", "2gis", "окко", "кинопоиск", "леруа",
+        "м.видео", "эльдорадо", "спортмастер", "золотое яблоко", "мегамаркет", "fix price"
+    )
+
     fun detect(ctx: Context): List<App> {
         val pm = ctx.packageManager
-        val result = ArrayList<App>()
         val apps = try {
             pm.getInstalledApplications(0)
         } catch (_: Exception) {
             emptyList<ApplicationInfo>()
         }
+        val result = ArrayList<App>()
         for (info in apps) {
-            val pkg = info.packageName
-            if (pkg == ctx.packageName || pkg in neverExclude) continue
-            val isPureSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0 &&
-                (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0
-            if (isPureSystem) continue
-            val byName = prefixes.any { pkg.startsWith(it) } || pkg in extra
-            val byStore = installer(pm, pkg) == "ru.vk.store" // RuStore
-            if (byName || byStore) {
-                val label = try {
-                    info.loadLabel(pm).toString()
-                } catch (_: Exception) {
-                    pkg
-                }
-                result.add(App(pkg, label))
-            }
+            classify(ctx, pm, info)?.let { result.add(it) }
         }
         return result.sortedBy { it.label.lowercase() }
+    }
+
+    /** Проверка одного приложения (например, только что установленного). */
+    fun isRussian(ctx: Context, pkg: String): Boolean = try {
+        val pm = ctx.packageManager
+        classify(ctx, pm, pm.getApplicationInfo(pkg, 0)) != null
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun classify(ctx: Context, pm: PackageManager, info: ApplicationInfo): App? {
+        val pkg = info.packageName
+        if (pkg == ctx.packageName || pkg in neverExclude) return null
+        val isPureSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0 &&
+            (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0
+        if (isPureSystem) return null
+
+        val label = try {
+            info.loadLabel(pm).toString()
+        } catch (_: Exception) {
+            pkg
+        }
+        val lower = label.lowercase().trim()
+        val byName = prefixes.any { pkg.startsWith(it) } || pkg in extra
+        val byStore = installer(pm, pkg) == "ru.vk.store" // RuStore
+        val byBrand = brands.any { lower.startsWith(it) }
+        return if (byName || byStore || byBrand) App(pkg, label) else null
     }
 
     @Suppress("DEPRECATION")

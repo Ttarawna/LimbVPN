@@ -134,7 +134,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
                             ? 'Сейчас: включена.'
                             : 'Сейчас: выключена. Включите её, чтобы трафик не шёл напрямую, если систему закроет саму службу VPN.';
                     return Text(
-                        'В настройках Android включите «Всегда включённый VPN» и «Блокировать соединения без VPN» для Quiet VPN. $status');
+                        'В настройках Android включите «Всегда включённый VPN» и «Блокировать соединения без VPN» для Limb VPN. $status');
                   },
                 ),
                 trailing: const Icon(Icons.open_in_new),
@@ -153,13 +153,14 @@ class _SettingsSheetState extends State<SettingsSheet> {
               title: const Text('Блокировать IPv6'),
               subtitle: const Text('Не даёт трафику обойти туннель по IPv6.'),
             ),
-            SwitchListTile(
-              value: app.autostart,
-              onChanged: (v) => app.setFlag(Flag.autostart, v),
-              title: const Text('Запускать при старте системы'),
-              subtitle: const Text(
-                  'После перезагрузки телефона VPN включится сам (нужно хотя бы раз подключиться вручную).'),
-            ),
+            if (app.vpn.hasAutostart)
+              ListTile(
+                title: const Text('Разрешение на автозапуск в системе'),
+                subtitle: const Text(
+                    'Переключатель автозапуска находится на главном экране. Если VPN не включается сам после перезагрузки, разрешите автозапуск для Limb VPN в настройках телефона. Надёжнее всего включить «Всегда включённый VPN».'),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: app.vpn.openAutostartSettings,
+              ),
             if (app.vpn.hasAppExclusion) ...[
               SwitchListTile(
                 value: app.excludeRuApps,
@@ -191,7 +192,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
               ),
             ],
             const ListTile(
-              title: Text('Версия 0.8.0'),
+              title: Text('Версия 0.8.1'),
               subtitle: Text('Изменения настроек применяются при следующем подключении.'),
             ),
           ],
