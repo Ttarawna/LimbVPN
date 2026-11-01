@@ -194,12 +194,14 @@ func patchConfig(raw string, fd int) ([]byte, error) {
 	if tun == nil {
 		tun = map[string]any{}
 	}
-	for _, k := range []string{
-		"auto-route", "auto-detect-interface", "strict-route",
-		"route-exclude-address", "route-address", "interface-name",
-	} {
+	for _, k := range []string{"route-exclude-address", "route-address", "interface-name"} {
 		delete(tun, k)
 	}
+	// Маршруты задаёт Android (VpnService). Эти параметры в Mihomo по умолчанию
+	// ВКЛЮЧЕНЫ, поэтому их нужно выключить явно.
+	tun["auto-route"] = false
+	tun["auto-detect-interface"] = false
+	tun["strict-route"] = false
 	tun["enable"] = true
 	tun["stack"] = "gvisor"
 	tun["file-descriptor"] = fd

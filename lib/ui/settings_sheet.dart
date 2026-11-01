@@ -69,19 +69,17 @@ class SettingsSheet extends StatelessWidget {
               child: Text('Расширенные настройки',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
             ),
-            const SwitchListTile(
-              value: true,
-              onChanged: null,
+            const ListTile(
               title: Text('Российский трафик напрямую'),
               subtitle: Text(
-                  'Всё российское идёт мимо VPN, даже в зарубежных и российских приложениях. Остальное идёт через VPN. Определяется автоматически.'),
+                  'Всегда включено. Всё российское идёт мимо VPN, даже в зарубежных и российских приложениях. Остальное идёт через VPN. Определяется автоматически.'),
+              trailing: Icon(Icons.check_circle_outline),
             ),
-            const SwitchListTile(
-              value: true,
-              onChanged: null,
+            const ListTile(
               title: Text('Сервер вне туннеля'),
               subtitle: Text(
-                  'Адрес сервера всегда идёт напрямую, а kill switch его пропускает, чтобы VPN мог переподключиться.'),
+                  'Всегда включено. Адрес сервера идёт напрямую, а kill switch его пропускает, чтобы VPN мог переподключиться.'),
+              trailing: Icon(Icons.check_circle_outline),
             ),
             SwitchListTile(
               value: app.killSwitch,
@@ -125,7 +123,7 @@ class SettingsSheet extends StatelessWidget {
                 onTap: () => _showLog(context),
               ),
             const ListTile(
-              title: Text('Версия 0.6.4'),
+              title: Text('Версия 0.6.5'),
               subtitle: Text(
                   'Изменения настроек применяются при следующем подключении.'),
             ),
