@@ -7,11 +7,21 @@ on:
         description: "Версия Mihomo (тег). Пусто означает последнюю стабильную"
         required: false
         default: ""
+      publish:
+        description: "Опубликовать релиз для автообновления приложения"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
+      KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -43,6 +53,17 @@ jobs:
         with:
           channel: stable
           cache: true
+
+      - name: Ключ подписи
+        run: |
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$KEYSTORE_PASS" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/limb.p12"
+            echo "LIMB_KEYSTORE=$RUNNER_TEMP/limb.p12" >> "$GITHUB_ENV"
+            echo "LIMB_KEYSTORE_PASSWORD=$KEYSTORE_PASS" >> "$GITHUB_ENV"
+            echo "Подпись: постоянный ключ"
+          else
+            echo "::warning::Ключ подписи не задан. APK подписан временным ключом, обновление поверх установленной версии работать не будет, релиз не публикуется."
+          fi
 
       - name: Создаём Android-проект и дорабатываем его
         run: |
@@ -81,9 +102,28 @@ jobs:
           set -e
           flutter pub get
           flutter test test/core_test.dart
-          flutter build apk --release --target-platform android-arm64
+          flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}
+
+      - name: Подпись APK
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -n 1)
+          "$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | grep -i "SHA-256 digest" || true
 
       - uses: actions/upload-artifact@v4
         with:
           name: limb-vpn-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Публикуем релиз для автообновления
+        if: ${{ github.event.inputs.publish != 'false' && env.LIMB_KEYSTORE != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//')
+          APK="limb-vpn-$VERSION.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "$APK"
+          gh release delete "v$VERSION" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "v$VERSION" "$APK" \
+            --title "Limb VPN $VERSION" \
+            --notes "Версия $VERSION (сборка ${{ github.run_number }})."

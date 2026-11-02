@@ -416,6 +416,7 @@ class QuietVpnService : VpnService() {
     private fun finish(finalState: String) {
         if (finishing) return
         finishing = true
+        getSharedPreferences("native", Context.MODE_PRIVATE).edit().putBoolean("resume", false).apply()
         handler.removeCallbacksAndMessages(null)
         unregisterPackageReceiver()
         try {
@@ -448,6 +449,13 @@ class QuietVpnService : VpnService() {
                 Thread.sleep(400)
             } catch (_: InterruptedException) {
             }
+            // После обычного отключения не храним журнал: в нём могут быть адреса сайтов.
+            if (finalState == "off" && session?.debug != true) {
+                try {
+                    File(filesDir, "mihomo/core.log").delete()
+                } catch (_: Exception) {
+                }
+            }
             Process.killProcess(Process.myPid())
         }.start()
     }
@@ -470,7 +478,11 @@ class QuietVpnService : VpnService() {
         }
         sendBroadcast(Intent(ACTION_STATE).setPackage(packageName).putExtra("state", state))
         when (state) {
-            "on" -> updateNotification("Подключено")
+            "on" -> {
+                // Запоминаем, что VPN работал: после обновления приложения он включится снова.
+                getSharedPreferences("native", Context.MODE_PRIVATE).edit().putBoolean("resume", true).apply()
+                updateNotification("Подключено")
+            }
             "blocked" -> updateNotification("Связь потеряна: трафик заблокирован")
         }
     }
@@ -494,7 +506,8 @@ class QuietVpnService : VpnService() {
         )
         val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL)
         else Notification.Builder(this)
-        b.setSmallIcon(android.R.drawable.ic_lock_lock)
+        b.setSmallIcon(R.drawable.ic_stat_limb)
+            .setColor(0xFF7B2FF7.toInt())
             .setContentTitle("Limb VPN")
             .setContentText(text)
             .setContentIntent(open)

@@ -45,7 +45,7 @@ var (
 // redirectLogs направляет stdout и stderr процесса в файл, чтобы журнал ядра
 // можно было показать в приложении.
 func redirectLogs(path string) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|os.O_APPEND, 0o600)
 	if err != nil {
 		return
 	}
@@ -55,6 +55,25 @@ func redirectLogs(path string) {
 		_ = logFile.Close()
 	}
 	logFile = f
+	rotateOnce.Do(func() { go rotateLogs() })
+}
+
+var rotateOnce sync.Once
+
+// rotateLogs не даёт журналу расти бесконечно: раз в 10 минут обрезает его, если он больше 2 МБ.
+func rotateLogs() {
+	for {
+		time.Sleep(10 * time.Minute)
+		mu.Lock()
+		f := logFile
+		mu.Unlock()
+		if f == nil {
+			continue
+		}
+		if st, err := f.Stat(); err == nil && st.Size() > 2<<20 {
+			_ = f.Truncate(0)
+		}
+	}
 }
 
 // protectFd отправляет на защиту копию сокета: Kotlin закрывает её сам,

@@ -45,7 +45,66 @@ class _HomePageState extends State<HomePage> {
   Timer? _deleteTimer;
 
   @override
+  void initState() {
+    super.initState();
+    widget.app.addListener(_onAppChanged);
+  }
+
+  /// Показывает сообщения приложения (например, ошибку установки обновления).
+  void _onAppChanged() {
+    final message = widget.app.notice;
+    if (message != null && mounted) {
+      widget.app.notice = null;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<void> _confirmUpdate() async {
+    final info = widget.app.update;
+    if (info == null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Обновить до версии ${info.version}?'),
+        content: const Text(
+            'Приложение скачает обновление и попросит подтвердить установку. На время установки VPN отключится и включится снова сам.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Позже')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Обновить')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final error = await widget.app.installUpdate();
+    if (error != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    }
+  }
+
+  Widget _updateBanner(_Palette c) {
+    final info = widget.app.update;
+    if (info == null) return const SizedBox.shrink();
+    final progress = widget.app.updateProgress;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: TextButton(
+        onPressed: progress == null ? _confirmUpdate : null,
+        child: Text(
+          progress == null
+              ? 'Доступна версия ${info.version}. Обновить'
+              : 'Загрузка обновления: $progress%',
+          style: TextStyle(
+              color: c.fg,
+              decoration: TextDecoration.underline,
+              decorationColor: c.muted),
+        ),
+      ),
+    );
+  }
+
+  @override
   void dispose() {
+    widget.app.removeListener(_onAppChanged);
     _url.dispose();
     _tapTimer?.cancel();
     _deleteTimer?.cancel();
@@ -161,6 +220,7 @@ class _HomePageState extends State<HomePage> {
                                   color: c.fg, fontSize: 22, fontWeight: FontWeight.w600)),
                           const SizedBox(height: 4),
                           _subtitle(c, status),
+                          _updateBanner(c),
                           const SizedBox(height: 28),
                           _profileArea(c),
                         ],
@@ -228,17 +288,7 @@ class _HomePageState extends State<HomePage> {
   Widget _subtitle(_Palette c, VpnStatus status) {
     final style = TextStyle(color: c.muted, fontSize: 14);
     if (status == VpnStatus.on) {
-      return StreamBuilder<int>(
-        stream: Stream.periodic(const Duration(seconds: 1), (i) => i),
-        builder: (context, _) {
-          final since = widget.app.vpn.since ?? DateTime.now();
-          final d = DateTime.now().difference(since).inSeconds;
-          final mm = (d ~/ 60).toString().padLeft(2, '0');
-          final ss = (d % 60).toString().padLeft(2, '0');
-          return Text('РФ напрямую, остальное через VPN. $mm:$ss',
-              textAlign: TextAlign.center, style: style);
-        },
-      );
+      return _Uptime(since: widget.app.vpn.since ?? DateTime.now(), style: style);
     }
     if (status == VpnStatus.blocked) {
       return Text('Связь потеряна, пробую восстановить. Нажмите кнопку, чтобы отключить.',
@@ -330,5 +380,62 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
     );
+  }
+}
+
+/// Время работы VPN. Таймер идёт только пока приложение открыто на экране,
+/// в фоне он остановлен, чтобы не будить процессор.
+class _Uptime extends StatefulWidget {
+  const _Uptime({required this.since, required this.style});
+
+  final DateTime since;
+  final TextStyle style;
+
+  @override
+  State<_Uptime> createState() => _UptimeState();
+}
+
+class _UptimeState extends State<_Uptime> with WidgetsBindingObserver {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _start();
+  }
+
+  void _start() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _start();
+      setState(() {});
+    } else {
+      _timer?.cancel();
+      _timer = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = DateTime.now().difference(widget.since).inSeconds;
+    final mm = (d ~/ 60).toString().padLeft(2, '0');
+    final ss = (d % 60).toString().padLeft(2, '0');
+    return Text('РФ напрямую, остальное через VPN. $mm:$ss',
+        textAlign: TextAlign.center, style: widget.style);
   }
 }

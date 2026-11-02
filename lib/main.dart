@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'core/android_vpn_controller.dart';
 import 'core/app_state.dart';
 import 'core/secret_store.dart';
+import 'core/updater.dart';
 import 'core/vpn_controller.dart';
 import 'ui/home_page.dart';
 
@@ -17,7 +18,9 @@ Future<void> main() async {
       Platform.isAndroid ? AndroidVpnController() : FakeVpnController();
   final SecretStore secrets =
       Platform.isAndroid ? ChannelSecretStore() : PrefsSecretStore(prefs);
-  final app = AppState(prefs, vpn, secrets);
+  final UpdateService updates =
+      Platform.isAndroid ? AndroidUpdateService() : NoUpdateService();
+  final app = AppState(prefs, vpn, secrets, updates);
   await app.load();
   runApp(LimbApp(app: app));
 }

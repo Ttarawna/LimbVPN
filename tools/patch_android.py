@@ -1,6 +1,7 @@
 """Дорабатывает Android-проект, созданный командой `flutter create`:
 кладёт наши файлы, подключает quietcore.aar, ставит minSdk 24, добавляет правила R8.
 Запускается из корня репозитория."""
+import os
 import pathlib
 import re
 import shutil
@@ -59,6 +60,50 @@ android {
     }
 }
 """
+# 2b. Подпись релиза постоянным ключом (иначе обновления не ставятся поверх установленной версии)
+if os.environ.get("LIMB_KEYSTORE"):
+    if is_kts:
+        text += """
+android {
+    signingConfigs {
+        create("release") {
+            storeFile = file(System.getenv("LIMB_KEYSTORE"))
+            storeType = "pkcs12"
+            storePassword = System.getenv("LIMB_KEYSTORE_PASSWORD")
+            keyAlias = "limb"
+            keyPassword = System.getenv("LIMB_KEYSTORE_PASSWORD")
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+}
+"""
+    else:
+        text += """
+android {
+    signingConfigs {
+        release {
+            storeFile file(System.getenv("LIMB_KEYSTORE"))
+            storeType "pkcs12"
+            storePassword System.getenv("LIMB_KEYSTORE_PASSWORD")
+            keyAlias "limb"
+            keyPassword System.getenv("LIMB_KEYSTORE_PASSWORD")
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+        }
+    }
+}
+"""
+    print("Подпись релиза: постоянный ключ")
+else:
+    print("Ключ подписи не задан: релиз подписывается временным ключом")
+
 gradle.write_text(text, encoding="utf-8")
 
 (APP / "proguard-rules.pro").write_text(

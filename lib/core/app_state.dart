@@ -7,12 +7,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'config_builder.dart';
 import 'mieru_link.dart';
 import 'secret_store.dart';
+import 'updater.dart';
 import 'vpn_controller.dart';
 
 enum Flag { killSwitch, dnsProtection, blockIpv6, autostart, excludeRuApps, debug }
 
 class AppState extends ChangeNotifier {
-  AppState(this._prefs, this.vpn, this._secrets) {
+  AppState(this._prefs, this.vpn, this._secrets, this._updates) {
     vpn.addListener(notifyListeners);
     killSwitch = _prefs.getBool('killSwitch') ?? true;
     dnsProtection = _prefs.getBool('dnsProtection') ?? true;
@@ -24,6 +25,7 @@ class AppState extends ChangeNotifier {
 
   final SharedPreferences _prefs;
   final SecretStore _secrets;
+  final UpdateService _updates;
   final VpnController vpn;
 
   MieruProfile? profile;
@@ -33,6 +35,13 @@ class AppState extends ChangeNotifier {
   bool autostart = false;
   bool excludeRuApps = true;
   bool debugMode = false;
+
+  /// Доступное обновление (null, если нет) и ход загрузки в процентах.
+  UpdateInfo? update;
+  int? updateProgress;
+
+  /// Сообщение для показа пользователю (например, ошибка установки обновления).
+  String? notice;
 
   /// Загружает профиль из защищённого хранилища. Вызывается один раз при запуске.
   Future<void> load() async {
@@ -65,6 +74,40 @@ class AppState extends ChangeNotifier {
     unawaited(vpn.setAutostart(autostart));
     notifyListeners();
     unawaited(_autostartFallback());
+    _updates.setErrorHandler((m) {
+      updateProgress = null;
+      notice = 'Не удалось установить обновление: $m';
+      notifyListeners();
+    });
+    unawaited(checkForUpdate());
+  }
+
+  /// Проверяет обновления не чаще раза в 12 часов, чтобы не расходовать сеть и батарею.
+  Future<void> checkForUpdate({bool force = false}) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final last = _prefs.getInt('lastUpdateCheck') ?? 0;
+    if (!force && now - last < 12 * 3600 * 1000) return;
+    await _prefs.setInt('lastUpdateCheck', now);
+    final found = await _updates.check();
+    if (found != null) {
+      update = found;
+      notifyListeners();
+    }
+  }
+
+  /// Скачивает и устанавливает обновление. Возвращает текст ошибки или null.
+  Future<String?> installUpdate() async {
+    final info = update;
+    if (info == null || updateProgress != null) return null;
+    updateProgress = 0;
+    notifyListeners();
+    final error = await _updates.install(info, (p) {
+      updateProgress = p;
+      notifyListeners();
+    });
+    updateProgress = null;
+    notifyListeners();
+    return error;
   }
 
   /// Запасной путь автозапуска. Некоторые оболочки (например, у Xiaomi) не дают

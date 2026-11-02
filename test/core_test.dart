@@ -50,6 +50,10 @@ void main() {
       final match = yaml.indexOf('MATCH,mieru');
       expect(server, lessThan(ru));
       expect(ru, lessThan(match));
+      final quic = yaml.indexOf('NETWORK,UDP),(DST-PORT,443');
+      expect(quic, greaterThan(ru));
+      expect(quic, lessThan(match));
+      expect(yaml, contains('lazy: true'));
       expect(yaml, contains('port: 9998'));
       expect(yaml, contains('port: 9999'));
     });

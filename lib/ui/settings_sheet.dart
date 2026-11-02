@@ -192,7 +192,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
               ),
             ],
             const ListTile(
-              title: Text('Версия 0.8.1'),
+              title: Text('Версия 0.9.0'),
               subtitle: Text('Изменения настроек применяются при следующем подключении.'),
             ),
           ],

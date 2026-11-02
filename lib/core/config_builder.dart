@@ -28,9 +28,12 @@ String buildMihomoConfig(
   b.writeln('log-level: ${debug ? "debug" : "warning"}');
   b.writeln('ipv6: ${!blockIpv6}');
   b.writeln('find-process-mode: off');
+  // Проверки соединения реже и только при реальном трафике, чтобы не будить радиомодуль.
+  b.writeln('keep-alive-idle: 600');
+  b.writeln('keep-alive-interval: 60');
   b.writeln('geodata-mode: true');
   b.writeln('geo-auto-update: true');
-  b.writeln('geo-update-interval: 24');
+  b.writeln('geo-update-interval: 168'); // раз в неделю; свежие списки приходят и с обновлением приложения
   b.writeln('geox-url:');
   b.writeln('  geoip: "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat"');
   b.writeln('  geosite: "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat"');
@@ -111,7 +114,8 @@ String buildMihomoConfig(
   b.writeln('    type: fallback');
   b.writeln('    proxies: [${names.join(', ')}]');
   b.writeln('    url: https://www.gstatic.com/generate_204');
-  b.writeln('    interval: 120');
+  b.writeln('    interval: 300');
+  b.writeln('    lazy: true'); // проверять порты только когда идёт трафик
 
   // Порядок важен: сервер, локальные сети, РФ, остальное через VPN.
   b.writeln('rules:');
@@ -127,6 +131,9 @@ String buildMihomoConfig(
   b.writeln('  - DOMAIN-SUFFIX,xn--p1ai,DIRECT');
   b.writeln('  - GEOSITE,category-ru,DIRECT');
   b.writeln('  - GEOIP,RU,DIRECT,no-resolve');
+  // QUIC (UDP 443) через VPN ненадёжен и расходует больше: браузеры и приложения сами
+  // переходят на TCP. Российский трафик выше уже ушёл напрямую.
+  b.writeln('  - AND,((NETWORK,UDP),(DST-PORT,443)),REJECT');
   b.writeln('  - MATCH,mieru');
 
   return b.toString();

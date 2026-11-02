@@ -28,6 +28,23 @@ class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
+        if (action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            // Приложение обновилось: если VPN был включён, включаем его снова.
+            val resume = context.getSharedPreferences("native", Context.MODE_PRIVATE)
+                .getBoolean("resume", false)
+            log(context, "приложение обновлено, VPN был включён: $resume")
+            if (resume && VpnService.prepare(context) == null) {
+                try {
+                    ContextCompat.startForegroundService(
+                        context,
+                        Intent(context, QuietVpnService::class.java)
+                            .setAction(QuietVpnService.ACTION_START_SAVED)
+                    )
+                } catch (_: Exception) {
+                }
+            }
+            return
+        }
         if (action != Intent.ACTION_BOOT_COMPLETED &&
             action != "android.intent.action.QUICKBOOT_POWERON" &&
             action != "com.htc.intent.action.QUICKBOOT_POWERON"

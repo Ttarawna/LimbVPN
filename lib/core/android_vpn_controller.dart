@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 
 import 'vpn_controller.dart';
@@ -102,7 +104,10 @@ class AndroidVpnController extends VpnController {
         'excludeRu': excludeRuApps,
         'debug': debug,
         'killSwitch': killSwitch,
-      });
+      }).timeout(const Duration(seconds: 30));
+    } on TimeoutException {
+      _set(VpnStatus.off);
+      throw 'Служба VPN не ответила вовремя';
     } on PlatformException catch (e) {
       _set(VpnStatus.off);
       throw e.message ?? 'Не удалось запустить ядро';

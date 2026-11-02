@@ -15,6 +15,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import org.json.JSONObject
 
 class MainActivity : FlutterActivity() {
 
@@ -24,6 +25,7 @@ class MainActivity : FlutterActivity() {
     private var pendingPrepare: MethodChannel.Result? = null
     private var pendingStart: MethodChannel.Result? = null
     private var receiverRegistered = false
+    private var updateChannel: MethodChannel? = null
 
     // Служба работает в другом процессе и сообщает состояние широковещательными сообщениями.
     private val stateReceiver = object : BroadcastReceiver() {
@@ -134,6 +136,7 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        setupUpdateChannel(flutterEngine)
         if (!receiverRegistered) {
             ContextCompat.registerReceiver(
                 this,
@@ -154,6 +157,66 @@ class MainActivity : FlutterActivity() {
             receiverRegistered = false
         }
         super.cleanUpFlutterEngine(flutterEngine)
+    }
+
+    private fun setupUpdateChannel(engine: FlutterEngine) {
+        val uc = MethodChannel(engine.dartExecutor.binaryMessenger, "quiet/update")
+        updateChannel = uc
+        UpdateReceiver.listener = { msg -> runOnUiThread { uc.invokeMethod("status", msg) } }
+        uc.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "check" -> Thread {
+                    val answer = try {
+                        val latest = Updater.fetchLatest()
+                        val current = Updater.currentVersion(this)
+                        if (latest != null && Updater.isNewer(latest.version, current)) {
+                            JSONObject()
+                                .put("version", latest.version)
+                                .put("url", latest.url)
+                                .put("sha256", latest.sha256 ?: "")
+                                .toString()
+                        } else {
+                            ""
+                        }
+                    } catch (_: Exception) {
+                        ""
+                    }
+                    runOnUiThread { result.success(answer) }
+                }.start()
+                "install" -> {
+                    val url = call.argument<String>("url") ?: ""
+                    val sha = call.argument<String>("sha256")?.takeIf { it.isNotEmpty() }
+                    if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+                        // Нужно разрешить установку из этого приложения.
+                        try {
+                            startActivity(
+                                Intent(
+                                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                    Uri.parse("package:$packageName")
+                                )
+                            )
+                        } catch (_: Exception) {
+                        }
+                        result.success("need_permission")
+                    } else {
+                        Thread {
+                            val answer = try {
+                                val file = Updater.download(this, Updater.Info("", url, sha)) { p ->
+                                    runOnUiThread { uc.invokeMethod("progress", p) }
+                                }
+                                Updater.install(this, file)
+                                "ok"
+                            } catch (e: Exception) {
+                                "error:" + (e.message ?: e.toString())
+                            }
+                            runOnUiThread { result.success(answer) }
+                        }.start()
+                    }
+                }
+                "version" -> result.success(Updater.currentVersion(this))
+                else -> result.notImplemented()
+            }
+        }
     }
 
     /** Открывает экран разрешения автозапуска (у Xiaomi и других оболочек он отдельный). */
