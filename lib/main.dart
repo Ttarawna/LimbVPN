@@ -3,8 +3,8 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'core/android_vpn_controller.dart';
 import 'core/app_state.dart';
+import 'core/mieru_service_manager.dart';
 import 'core/secret_store.dart';
 import 'core/updater.dart';
 import 'core/vpn_controller.dart';
@@ -15,7 +15,7 @@ Future<void> main() async {
   final prefs = await SharedPreferences.getInstance();
   // На Android работает настоящее ядро, на остальных платформах пока имитация.
   final VpnController vpn =
-      Platform.isAndroid ? AndroidVpnController() : FakeVpnController();
+      Platform.isAndroid ? MieruServiceManager() : FakeVpnController();
   final SecretStore secrets =
       Platform.isAndroid ? ChannelSecretStore() : PrefsSecretStore(prefs);
   final UpdateService updates =

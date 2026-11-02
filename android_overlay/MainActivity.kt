@@ -61,24 +61,33 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(null)
                 }
-                "start" -> {
+                "start", "startVpn" -> {
                     val config = call.argument<String>("config")
                     if (config == null) {
                         result.error("bad_args", "Нет конфига", null)
                     } else {
                         pendingStart = result
-                        ContextCompat.startForegroundService(
-                            this,
-                            Intent(this, QuietVpnService::class.java)
-                                .setAction(QuietVpnService.ACTION_START)
-                                .putExtra("config", config)
-                                .putExtra("excludeRu", call.argument<Boolean>("excludeRu") ?: true)
-                                .putExtra("debug", call.argument<Boolean>("debug") ?: false)
-                                .putExtra("killSwitch", call.argument<Boolean>("killSwitch") ?: true)
-                        )
+                        try {
+                            ContextCompat.startForegroundService(
+                                this,
+                                Intent(this, QuietVpnService::class.java)
+                                    .setAction(QuietVpnService.ACTION_START)
+                                    .putExtra("config", config)
+                                    .putExtra("excludeRu", call.argument<Boolean>("excludeRu") ?: true)
+                                    .putExtra("debug", call.argument<Boolean>("debug") ?: false)
+                                    .putExtra("killSwitch", call.argument<Boolean>("killSwitch") ?: true)
+                            )
+                        } catch (e: Exception) {
+                            pendingStart = null
+                            result.error(
+                                "start_failed",
+                                e.message ?: "Не удалось запустить службу VPN",
+                                null
+                            )
+                        }
                     }
                 }
-                "stop" -> {
+                "stop", "stopVpn" -> {
                     startService(
                         Intent(this, QuietVpnService::class.java)
                             .setAction(QuietVpnService.ACTION_STOP)
