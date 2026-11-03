@@ -81,23 +81,65 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Widget _updateBanner(_Palette c) {
-    final info = widget.app.update;
-    if (info == null) return const SizedBox.shrink();
-    final progress = widget.app.updateProgress;
+  Widget _updateControl(_Palette c) {
+    final app = widget.app;
+    final progress = app.updateProgress;
+    final info = app.update;
+    final message = app.updateCheckMessage;
+    final buttonStyle = TextButton.styleFrom(foregroundColor: c.fg);
+
+    if (progress != null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: TextButton.icon(
+          onPressed: null,
+          icon: const Icon(Icons.downloading),
+          label: Text('Загрузка обновления: $progress%'),
+        ),
+      );
+    }
+    if (app.updateChecking) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: TextButton.icon(
+          onPressed: null,
+          icon: const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          label: const Text('Проверяем обновления…'),
+        ),
+      );
+    }
+    if (info != null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: TextButton.icon(
+          style: buttonStyle,
+          onPressed: _confirmUpdate,
+          icon: const Icon(Icons.system_update_alt),
+          label: Text('Доступна версия ${info.version} · Обновить'),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.only(top: 12),
-      child: TextButton(
-        onPressed: progress == null ? _confirmUpdate : null,
-        child: Text(
-          progress == null
-              ? 'Доступна версия ${info.version}. Обновить'
-              : 'Загрузка обновления: $progress%',
-          style: TextStyle(
-              color: c.fg,
-              decoration: TextDecoration.underline,
-              decorationColor: c.muted),
-        ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextButton.icon(
+            style: buttonStyle,
+            onPressed: () => app.checkForUpdate(force: true),
+            icon: const Icon(Icons.refresh),
+            label: Text(message == null ? 'Проверить обновления' : 'Проверить снова'),
+          ),
+          if (message != null)
+            Text(message,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: c.muted, fontSize: 12)),
+        ],
       ),
     );
   }
@@ -220,7 +262,7 @@ class _HomePageState extends State<HomePage> {
                                   color: c.fg, fontSize: 22, fontWeight: FontWeight.w600)),
                           const SizedBox(height: 4),
                           _subtitle(c, status),
-                          _updateBanner(c),
+                          _updateControl(c),
                           const SizedBox(height: 28),
                           _profileArea(c),
                         ],
