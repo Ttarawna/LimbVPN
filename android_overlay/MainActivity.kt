@@ -175,22 +175,28 @@ class MainActivity : FlutterActivity() {
         uc.setMethodCallHandler { call, result ->
             when (call.method) {
                 "check" -> Thread {
-                    val answer = try {
+                    try {
                         val latest = Updater.fetchLatest()
                         val current = Updater.currentVersion(this)
                         if (latest != null && Updater.isNewer(latest.version, current)) {
-                            JSONObject()
+                            val answer = JSONObject()
                                 .put("version", latest.version)
                                 .put("url", latest.url)
                                 .put("sha256", latest.sha256 ?: "")
                                 .toString()
+                            runOnUiThread { result.success(answer) }
                         } else {
-                            ""
+                            runOnUiThread { result.success("") }
                         }
-                    } catch (_: Exception) {
-                        ""
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            result.error(
+                                "check_failed",
+                                e.message ?: "Не удалось проверить обновления",
+                                null
+                            )
+                        }
                     }
-                    runOnUiThread { result.success(answer) }
                 }.start()
                 "install" -> {
                     val url = call.argument<String>("url") ?: ""

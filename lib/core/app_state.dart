@@ -39,6 +39,8 @@ class AppState extends ChangeNotifier {
   /// Доступное обновление (null, если нет) и ход загрузки в процентах.
   UpdateInfo? update;
   int? updateProgress;
+  bool updateChecking = false;
+  String? updateCheckMessage;
 
   /// Сообщение для показа пользователю (например, ошибка установки обновления).
   String? notice;
@@ -82,15 +84,28 @@ class AppState extends ChangeNotifier {
     unawaited(checkForUpdate());
   }
 
-  /// Проверяет обновления не чаще раза в 12 часов, чтобы не расходовать сеть и батарею.
+  /// Проверяет обновления не чаще раза в 12 часов, если [force] не задан.
   Future<void> checkForUpdate({bool force = false}) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final last = _prefs.getInt('lastUpdateCheck') ?? 0;
     if (!force && now - last < 12 * 3600 * 1000) return;
-    await _prefs.setInt('lastUpdateCheck', now);
-    final found = await _updates.check();
-    if (found != null) {
+    if (updateChecking || updateProgress != null) return;
+    updateChecking = true;
+    updateCheckMessage = null;
+    notifyListeners();
+    try {
+      final found = await _updates.check();
       update = found;
+      updateCheckMessage = found == null
+          ? 'Установлена последняя версия'
+          : 'Доступна версия ${found.version}';
+      await _prefs.setInt('lastUpdateCheck', now);
+    } catch (e) {
+      updateCheckMessage = e is UnsupportedError
+          ? e.message
+          : 'Не удалось проверить обновления: $e';
+    } finally {
+      updateChecking = false;
       notifyListeners();
     }
   }
@@ -101,13 +116,17 @@ class AppState extends ChangeNotifier {
     if (info == null || updateProgress != null) return null;
     updateProgress = 0;
     notifyListeners();
-    final error = await _updates.install(info, (p) {
-      updateProgress = p;
+    try {
+      return await _updates.install(info, (p) {
+        updateProgress = p;
+        notifyListeners();
+      });
+    } catch (e) {
+      return 'Не удалось установить обновление: $e';
+    } finally {
+      updateProgress = null;
       notifyListeners();
-    });
-    updateProgress = null;
-    notifyListeners();
-    return error;
+    }
   }
 
   /// Запасной путь автозапуска. Некоторые оболочки (например, у Xiaomi) не дают

@@ -18,6 +18,40 @@ class _SettingsSheetState extends State<SettingsSheet> {
 
   late final Future<bool?> _lockdown = app.vpn.lockdownEnabled();
 
+  Future<void> _checkForUpdate() async {
+    await app.checkForUpdate(force: true);
+  }
+
+  Future<void> _installUpdate() async {
+    final info = app.update;
+    if (info == null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Обновить до версии ${info.version}?'),
+        content: const Text(
+          'Приложение скачает обновление и попросит подтвердить установку.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Позже'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Обновить'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final error = await app.installUpdate();
+    if (error != null && mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
+    }
+  }
+
   Future<void> _setKillSwitch(bool value) async {
     if (!value) {
       final ok = await showDialog<bool>(
@@ -191,10 +225,40 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 onTap: _showLog,
               ),
             ],
-            const ListTile(
-              title: Text('Версия 0.9.0'),
-              subtitle: Text('Изменения настроек применяются при следующем подключении.'),
+            ListTile(
+              title: const Text('Обновление приложения'),
+              subtitle: Text(
+                app.updateChecking
+                    ? 'Проверяем наличие новой версии…'
+                    : app.updateProgress != null
+                    ? 'Загрузка обновления: ${app.updateProgress}%'
+                    : app.updateCheckMessage ??
+                          'Проверить наличие новой версии',
+              ),
+              trailing: app.updateChecking
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : TextButton.icon(
+                      onPressed: app.updateProgress == null
+                          ? _checkForUpdate
+                          : null,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Проверить'),
+                    ),
             ),
+            if (app.update != null)
+              ListTile(
+                title: Text('Доступна версия ${app.update!.version}'),
+                trailing: app.updateProgress != null
+                    ? Text('${app.updateProgress}%')
+                    : FilledButton(
+                        onPressed: _installUpdate,
+                        child: const Text('Обновить'),
+                      ),
+              ),
           ],
         ),
       ),

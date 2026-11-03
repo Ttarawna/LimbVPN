@@ -32,7 +32,7 @@ object Updater {
         "0"
     }
 
-    /** Последняя версия из релизов или null, если связи нет или релизов нет. */
+    /** Последняя версия из релизов или null, если релизов пока нет. */
     fun fetchLatest(): Info? {
         val conn = URL("https://api.github.com/repos/$REPO/releases/latest")
             .openConnection() as HttpURLConnection
@@ -41,7 +41,10 @@ object Updater {
             conn.readTimeout = 15_000
             conn.setRequestProperty("Accept", "application/vnd.github+json")
             conn.setRequestProperty("User-Agent", "LimbVPN-updater")
-            if (conn.responseCode != 200) return null
+            if (conn.responseCode == 404) return null
+            if (conn.responseCode != 200) {
+                throw IllegalStateException("GitHub ответил: ${conn.responseCode}")
+            }
             val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
             val version = json.getString("tag_name").trim().trimStart('v', 'V')
             val assets = json.getJSONArray("assets")

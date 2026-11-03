@@ -12,11 +12,11 @@ class UpdateInfo {
 
 /// Автообновление. На Android берёт новые версии из релизов GitHub.
 abstract class UpdateService {
-  /// Новая версия или null, если обновлений нет (или нет связи).
+  /// Новая версия или null, если обновлений нет. При ошибке проверки бросает исключение.
   Future<UpdateInfo?> check();
 
   /// Скачивает и устанавливает обновление. Возвращает текст ошибки или null.
-  /// [onProgress] получает проценты загрузки, [onStatus] получает сообщения установщика.
+  /// [onProgress] получает проценты загрузки.
   Future<String?> install(UpdateInfo info, void Function(int percent) onProgress);
 
   void setErrorHandler(void Function(String message) handler);
@@ -24,7 +24,8 @@ abstract class UpdateService {
 
 class NoUpdateService implements UpdateService {
   @override
-  Future<UpdateInfo?> check() async => null;
+  Future<UpdateInfo?> check() async => throw UnsupportedError(
+      'Проверка обновлений доступна только на Android');
 
   @override
   Future<String?> install(UpdateInfo info, void Function(int percent) onProgress) async =>
@@ -58,21 +59,22 @@ class AndroidUpdateService implements UpdateService {
 
   @override
   Future<UpdateInfo?> check() async {
-    try {
-      final text = await _channel.invokeMethod<String>('check');
-      if (text == null || text.isEmpty) return null;
-      final m = jsonDecode(text) as Map<String, dynamic>;
-      return UpdateInfo(m['version'] as String, m['url'] as String, (m['sha256'] as String?) ?? '');
-    } catch (_) {
-      return null;
-    }
+    final text = await _channel.invokeMethod<String>('check');
+    if (text == null || text.isEmpty) return null;
+    final m = jsonDecode(text) as Map<String, dynamic>;
+    return UpdateInfo(
+      m['version'] as String,
+      m['url'] as String,
+      (m['sha256'] as String?) ?? '',
+    );
   }
 
   @override
   Future<String?> install(UpdateInfo info, void Function(int percent) onProgress) async {
     _progress = onProgress;
     try {
-      final r = await _channel.invokeMethod<String>('install', {'url': info.url, 'sha256': info.sha256});
+      final r = await _channel.invokeMethod<String>(
+          'install', {'url': info.url, 'sha256': info.sha256});
       if (r == 'ok') return null;
       if (r == 'need_permission') {
         return 'Разрешите Limb VPN устанавливать приложения и нажмите «Обновить» ещё раз';
