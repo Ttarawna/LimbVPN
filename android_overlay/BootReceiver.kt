@@ -29,9 +29,16 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
         if (action == Intent.ACTION_MY_PACKAGE_REPLACED) {
-            // Приложение обновилось: если VPN был включён, включаем его снова.
-            val resume = context.getSharedPreferences("native", Context.MODE_PRIVATE)
-                .getBoolean("resume", false)
+            val prefs = context.getSharedPreferences("native", Context.MODE_PRIVATE)
+            val resume = prefs.getBoolean(
+                "resumeAfterUpdate",
+                prefs.getBoolean("resume", false)
+            )
+            prefs.edit()
+                .putBoolean("updatePending", false)
+                .putBoolean("resumeAfterUpdate", false)
+                .putBoolean("resume", resume)
+                .commit()
             log(context, "приложение обновлено, VPN был включён: $resume")
             if (resume && VpnService.prepare(context) == null) {
                 try {

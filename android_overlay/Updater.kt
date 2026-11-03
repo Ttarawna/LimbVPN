@@ -166,25 +166,40 @@ object Updater {
 
     /** Передаёт APK установщику. Пользователь подтверждает установку в системном окне. */
     fun install(ctx: Context, apk: File) {
-        val installer = ctx.packageManager.packageInstaller
-        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
-        params.setAppPackageName(ctx.packageName)
-        if (Build.VERSION.SDK_INT >= 31) {
-            params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
-        }
-        val id = installer.createSession(params)
-        installer.openSession(id).use { session ->
-            apk.inputStream().use { input ->
-                session.openWrite("update", 0, apk.length()).use { out ->
-                    input.copyTo(out)
-                    session.fsync(out)
-                }
+        val prefs = ctx.getSharedPreferences("native", Context.MODE_PRIVATE)
+        val resumeAfterUpdate = prefs.getBoolean("resume", false)
+        check(prefs.edit()
+            .putBoolean("resumeAfterUpdate", resumeAfterUpdate)
+            .putBoolean("updatePending", true)
+            .commit()) { "Не удалось подготовить повторное подключение после обновления" }
+
+        try {
+            val installer = ctx.packageManager.packageInstaller
+            val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+            params.setAppPackageName(ctx.packageName)
+            if (Build.VERSION.SDK_INT >= 31) {
+                params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
             }
-            val intent = Intent(ctx, UpdateReceiver::class.java).setAction(ACTION_RESULT)
-            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
-            val pi = PendingIntent.getBroadcast(ctx, id, intent, flags)
-            session.commit(pi.intentSender)
+            val id = installer.createSession(params)
+            installer.openSession(id).use { session ->
+                apk.inputStream().use { input ->
+                    session.openWrite("update", 0, apk.length()).use { out ->
+                        input.copyTo(out)
+                        session.fsync(out)
+                    }
+                }
+                val intent = Intent(ctx, UpdateReceiver::class.java).setAction(ACTION_RESULT)
+                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                    (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
+                val pi = PendingIntent.getBroadcast(ctx, id, intent, flags)
+                session.commit(pi.intentSender)
+            }
+        } catch (e: Exception) {
+            prefs.edit()
+                .putBoolean("updatePending", false)
+                .putBoolean("resumeAfterUpdate", false)
+                .apply()
+            throw e
         }
     }
 }

@@ -85,19 +85,12 @@ class QuietVpnService : VpnService() {
             var state = parts.firstOrNull() ?: "off"
             val needsService = state in setOf("on", "blocked", "connecting", "disconnecting")
             val pid = parts.getOrNull(1)?.toIntOrNull()
-            if (needsService && (pid == null || !isVpnProcess(ctx, pid))) state = "off"
+            if (needsService && (pid == null || !File("/proc/$pid").exists())) state = "off"
             val since = if (state == "on") parts.getOrNull(2)?.toLongOrNull() else null
             return mapOf("state" to state, "since" to since)
         }
 
         fun readState(ctx: Context): String = readStatus(ctx)["state"] as? String ?: "off"
-
-        private fun isVpnProcess(ctx: Context, pid: Int): Boolean = try {
-            File("/proc/$pid/cmdline").readText().substringBefore('\u0000') ==
-                "${ctx.packageName}:vpn"
-        } catch (_: Exception) {
-            false
-        }
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -172,6 +165,21 @@ class QuietVpnService : VpnService() {
     // ---------------------------------------------------------------- команды
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val prefs = getSharedPreferences("native", Context.MODE_PRIVATE)
+        if (intent?.action == ACTION_STOP && prefs.getBoolean("updatePending", false)) {
+            prefs.edit()
+                .putBoolean("resume", false)
+                .putBoolean("resumeAfterUpdate", false)
+                .apply()
+        }
+        val updatePending = prefs.getBoolean("updatePending", false)
+        if (updatePending &&
+            (intent == null || intent.action == VpnService.SERVICE_INTERFACE ||
+                intent.action == ACTION_START_SAVED)
+        ) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         // Служба запущена как foreground: уведомление нужно показать сразу.
         if (intent?.action != ACTION_STOP) startForegroundCompat("Подключаю…")
         when (intent?.action) {
@@ -434,7 +442,10 @@ class QuietVpnService : VpnService() {
     private fun finish(finalState: String) {
         if (finishing) return
         finishing = true
-        getSharedPreferences("native", Context.MODE_PRIVATE).edit().putBoolean("resume", false).apply()
+        val prefs = getSharedPreferences("native", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("updatePending", false)) {
+            prefs.edit().putBoolean("resume", false).apply()
+        }
         handler.removeCallbacksAndMessages(null)
         unregisterPackageReceiver()
         try {
