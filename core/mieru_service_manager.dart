@@ -11,6 +11,9 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
     _channel.setMethodCallHandler(_onCall);
     WidgetsBinding.instance.addObserver(this);
     unawaited(refreshStatus());
+    if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+      _startStatusSync();
+    }
   }
 
   static const _channel = MethodChannel('quiet/vpn');
@@ -18,6 +21,7 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
   VpnStatus _status = VpnStatus.off;
   DateTime? _since;
   int _statusRevision = 0;
+  Timer? _statusSyncTimer;
 
   @override
   VpnStatus get status => _status;
@@ -86,7 +90,21 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) unawaited(refreshStatus());
+    if (state == AppLifecycleState.resumed) {
+      unawaited(refreshStatus());
+      _startStatusSync();
+    } else {
+      _statusSyncTimer?.cancel();
+      _statusSyncTimer = null;
+    }
+  }
+
+  void _startStatusSync() {
+    if (_statusSyncTimer?.isActive == true) return;
+    _statusSyncTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => unawaited(refreshStatus()),
+    );
   }
 
   Future<dynamic> _onCall(MethodCall call) async {
@@ -207,6 +225,7 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _statusSyncTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _channel.setMethodCallHandler(null);
     super.dispose();

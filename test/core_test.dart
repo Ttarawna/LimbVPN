@@ -21,16 +21,41 @@ void main() {
     });
 
     test('отклоняет чужие и неполные ссылки', () {
-      expect(() => MieruProfile.parse('https://example.com'),
-          throwsA(isA<LinkFormatException>()));
-      expect(() => MieruProfile.parse('mieru://abcdef'),
-          throwsA(isA<LinkFormatException>()));
-      expect(() => MieruProfile.parse('mierus://user@1.2.3.4?port=1&protocol=TCP'),
-          throwsA(isA<LinkFormatException>()));
-      expect(() => MieruProfile.parse('mierus://u:p@1.2.3.4?port=70000&protocol=TCP'),
-          throwsA(isA<LinkFormatException>()));
-      expect(() => MieruProfile.parse('mierus://u:p@1.2.3.4?port=1&port=2&protocol=TCP'),
-          throwsA(isA<LinkFormatException>()));
+      expect(
+        () => MieruProfile.parse('https://example.com'),
+        throwsA(isA<LinkFormatException>()),
+      );
+      expect(
+        () => MieruProfile.parse('mieru://abcdef'),
+        throwsA(isA<LinkFormatException>()),
+      );
+      expect(
+        () => MieruProfile.parse('mierus://user@1.2.3.4?port=1&protocol=TCP'),
+        throwsA(isA<LinkFormatException>()),
+      );
+      expect(
+        () =>
+            MieruProfile.parse('mierus://u:p@1.2.3.4?port=70000&protocol=TCP'),
+        throwsA(isA<LinkFormatException>()),
+      );
+      expect(
+        () => MieruProfile.parse(
+          'mierus://u:p@1.2.3.4?port=1&port=2&protocol=TCP',
+        ),
+        throwsA(isA<LinkFormatException>()),
+      );
+    });
+
+    test('ignores multiplexing values that are not known enum values', () {
+      final p = MieruProfile.parse(
+        'mierus://user:pass@1.2.3.4?port=443&protocol=TCP'
+        '&multiplexing=MULTIPLEXING_HIGH%0Aexternal-controller:%200.0.0.0:9090',
+      );
+      final yaml = buildMihomoConfig(p, serverIps: ['1.2.3.4']);
+
+      expect(p.multiplexing, isNull);
+      expect(yaml, isNot(contains('external-controller')));
+      expect(yaml, contains('    udp: true'));
     });
   });
 
@@ -60,7 +85,8 @@ void main() {
 
     test('для сервера-домена добавляет правило DOMAIN', () {
       final p = MieruProfile.parse(
-          'mierus://u:p@vpn.example.com?port=1000&protocol=TCP');
+        'mierus://u:p@vpn.example.com?port=1000&protocol=TCP',
+      );
       final yaml = buildMihomoConfig(p, serverIps: ['203.0.113.5']);
       expect(yaml, contains('- DOMAIN,vpn.example.com,DIRECT'));
     });

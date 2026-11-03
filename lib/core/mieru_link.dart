@@ -25,6 +25,13 @@ class PortBinding {
 }
 
 class MieruProfile {
+  static const _multiplexingModes = {
+    'MULTIPLEXING_OFF',
+    'MULTIPLEXING_LOW',
+    'MULTIPLEXING_MIDDLE',
+    'MULTIPLEXING_HIGH',
+  };
+
   const MieruProfile({
     required this.link,
     required this.server,
@@ -111,7 +118,8 @@ class MieruProfile {
       username: username,
       password: password,
       bindings: bindings,
-      multiplexing: (mux != null && mux.startsWith('MULTIPLEXING_')) ? mux : null,
+      multiplexing:
+          _multiplexingModes.contains(mux) ? mux : null,
     );
   }
 

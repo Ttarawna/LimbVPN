@@ -48,6 +48,15 @@ void main() {
         await blocked.future;
 
         expect(controller.status, VpnStatus.blocked);
+        status = {'state': 'on', 'since': 1700000000000};
+        final reconnected = Completer<void>();
+        controller.addListener(() {
+          if (controller.status == VpnStatus.on && !reconnected.isCompleted) {
+            reconnected.complete();
+          }
+        });
+        await reconnected.future.timeout(const Duration(seconds: 3));
+        expect(controller.status, VpnStatus.on);
       } finally {
         controller.dispose();
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
