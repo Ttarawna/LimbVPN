@@ -20,6 +20,7 @@ import android.os.Looper
 import android.os.Parcel
 import android.os.ParcelFileDescriptor
 import android.os.Process
+import android.util.AtomicFile
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.io.File
@@ -72,17 +73,30 @@ class QuietVpnService : VpnService() {
         private const val CHANNEL = "vpn_state"
         private const val NOTIF_ID = 1
 
-        /** Текущее состояние. Если процесс службы мёртв, «живым» состояниям не верим. */
-        fun readState(ctx: Context): String {
-            return try {
-                val parts = File(ctx.filesDir, "vpn_state").readText().split("|")
-                val state = parts[0]
-                val pid = parts.getOrNull(1)?.toIntOrNull()
-                val live = state == "on" || state == "blocked"
-                if (live && (pid == null || !File("/proc/$pid").exists())) "off" else state
+        /** Состояние службы и время подключения. Не доверяем устаревшему или повторно занятому PID. */
+        fun readStatus(ctx: Context): Map<String, Any?> {
+            val parts = try {
+                AtomicFile(File(ctx.filesDir, "vpn_state")).openRead().bufferedReader().use {
+                    it.readText().split("|")
+                }
             } catch (_: Exception) {
-                "off"
+                emptyList()
             }
+            var state = parts.firstOrNull() ?: "off"
+            val needsService = state in setOf("on", "blocked", "connecting", "disconnecting")
+            val pid = parts.getOrNull(1)?.toIntOrNull()
+            if (needsService && (pid == null || !isVpnProcess(ctx, pid))) state = "off"
+            val since = if (state == "on") parts.getOrNull(2)?.toLongOrNull() else null
+            return mapOf("state" to state, "since" to since)
+        }
+
+        fun readState(ctx: Context): String = readStatus(ctx)["state"] as? String ?: "off"
+
+        private fun isVpnProcess(ctx: Context, pid: Int): Boolean = try {
+            File("/proc/$pid/cmdline").readText().substringBefore('\u0000') ==
+                "${ctx.packageName}:vpn"
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -102,6 +116,9 @@ class QuietVpnService : VpnService() {
     private var started = false
 
     private var retryDelayMs = 3000L
+
+    @Volatile
+    private var connectedSinceMillis = 0L
 
     @Volatile
     private var rebuilding = false
@@ -200,6 +217,7 @@ class QuietVpnService : VpnService() {
             }
         }
         session = s
+        setState("connecting")
         Thread {
             try {
                 val pfd = buildTunnel(s)
@@ -472,8 +490,22 @@ class QuietVpnService : VpnService() {
     // ---------------------------------------------------------------- состояние и уведомление
 
     private fun setState(state: String) {
+        when {
+            state == "on" && connectedSinceMillis == 0L ->
+                connectedSinceMillis = System.currentTimeMillis()
+            state == "connecting" || state == "off" || state.startsWith("error:") ->
+                connectedSinceMillis = 0L
+        }
         try {
-            File(filesDir, "vpn_state").writeText(state + "|" + Process.myPid())
+            val atomicFile = AtomicFile(File(filesDir, "vpn_state"))
+            val output = atomicFile.startWrite()
+            try {
+                output.write("$state|${Process.myPid()}|$connectedSinceMillis".toByteArray())
+                atomicFile.finishWrite(output)
+            } catch (e: Exception) {
+                atomicFile.failWrite(output)
+                throw e
+            }
         } catch (_: Exception) {
         }
         sendBroadcast(Intent(ACTION_STATE).setPackage(packageName).putExtra("state", state))

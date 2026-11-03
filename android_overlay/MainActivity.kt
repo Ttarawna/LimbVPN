@@ -95,6 +95,7 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "status" -> result.success(QuietVpnService.readState(this))
+                "statusDetails" -> result.success(QuietVpnService.readStatus(this))
                 "lockdown" -> result.success(readFile("mihomo/lockdown"))
                 "excludedApps" -> result.success(readFile("mihomo/excluded_apps.txt"))
                 "readLog" -> result.success(buildLogText())

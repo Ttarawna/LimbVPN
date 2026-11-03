@@ -1,20 +1,23 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
 import 'package:quiet_vpn/core/vpn_controller.dart';
 
 /// Coordinates Flutter VPN controls with the Android VPN service.
-class MieruServiceManager extends VpnController {
+class MieruServiceManager extends VpnController with WidgetsBindingObserver {
   MieruServiceManager() {
     _channel.setMethodCallHandler(_onCall);
-    unawaited(_syncInitialState());
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(refreshStatus());
   }
 
   static const _channel = MethodChannel('quiet/vpn');
 
   VpnStatus _status = VpnStatus.off;
   DateTime? _since;
+  int _statusRevision = 0;
 
   @override
   VpnStatus get status => _status;
@@ -63,34 +66,61 @@ class MieruServiceManager extends VpnController {
   Future<String> readLog() async =>
       await _channel.invokeMethod<String>('readLog') ?? '';
 
-  Future<void> _syncInitialState() async {
+  Future<void> refreshStatus() async {
+    final revision = ++_statusRevision;
     try {
-      final state = await _channel.invokeMethod<String>('status');
-      if (state == 'on') _set(VpnStatus.on);
-      if (state == 'blocked') _set(VpnStatus.blocked);
+      final details = await _channel.invokeMapMethod<String, dynamic>(
+        'statusDetails',
+      );
+      if (details == null || revision != _statusRevision) return;
+      final state = details['state'];
+      final sinceMillis = details['since'];
+      final since = sinceMillis is int
+          ? DateTime.fromMillisecondsSinceEpoch(sinceMillis)
+          : null;
+      _applyState(state, since: since);
     } on PlatformException {
       return;
     }
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(refreshStatus());
+  }
+
   Future<dynamic> _onCall(MethodCall call) async {
     if (call.method != 'status' || call.arguments is! String) return;
 
-    final state = call.arguments as String;
-    if (state == 'on') {
-      _set(VpnStatus.on);
-    } else if (state == 'blocked') {
-      _set(VpnStatus.blocked);
-    } else if (state == 'off' || state.startsWith('error:')) {
-      _set(VpnStatus.off);
+    _statusRevision++;
+    _applyState(call.arguments as String);
+  }
+
+  void _applyState(String? state, {DateTime? since}) {
+    switch (state) {
+      case 'connecting':
+        _set(VpnStatus.connecting);
+      case 'disconnecting':
+        _set(VpnStatus.disconnecting);
+      case 'on':
+        _set(VpnStatus.on, since: since);
+      case 'blocked':
+        _set(VpnStatus.blocked);
+      case 'off':
+        _set(VpnStatus.off);
+      default:
+        if (state?.startsWith('error:') == true) _set(VpnStatus.off);
     }
   }
 
-  void _set(VpnStatus status) {
+  void _set(VpnStatus status, {DateTime? since}) {
     if (status == VpnStatus.on && _status != VpnStatus.on) {
-      _since = DateTime.now();
+      _since = since ?? DateTime.now();
+    } else if (status == VpnStatus.on && since != null) {
+      _since = since;
     }
-    if (status == VpnStatus.off) _since = null;
+    if (status == VpnStatus.off || status == VpnStatus.connecting)
+      _since = null;
     _status = status;
     notifyListeners();
   }
@@ -177,6 +207,7 @@ class MieruServiceManager extends VpnController {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _channel.setMethodCallHandler(null);
     super.dispose();
   }
