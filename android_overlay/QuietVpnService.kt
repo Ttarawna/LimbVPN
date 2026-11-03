@@ -73,7 +73,7 @@ class QuietVpnService : VpnService() {
         private const val CHANNEL = "vpn_state"
         private const val NOTIF_ID = 1
 
-        /** Состояние службы и время подключения. Не доверяем устаревшему или повторно занятому PID. */
+        /** Состояние службы и время подключения. */
         fun readStatus(ctx: Context): Map<String, Any?> {
             val parts = try {
                 AtomicFile(File(ctx.filesDir, "vpn_state")).openRead().bufferedReader().use {
@@ -82,10 +82,7 @@ class QuietVpnService : VpnService() {
             } catch (_: Exception) {
                 emptyList()
             }
-            var state = parts.firstOrNull() ?: "off"
-            val needsService = state in setOf("on", "blocked", "connecting", "disconnecting")
-            val pid = parts.getOrNull(1)?.toIntOrNull()
-            if (needsService && (pid == null || !File("/proc/$pid").exists())) state = "off"
+            val state = parts.firstOrNull() ?: "off"
             val since = if (state == "on") parts.getOrNull(2)?.toLongOrNull() else null
             return mapOf("state" to state, "since" to since)
         }
