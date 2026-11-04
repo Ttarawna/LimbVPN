@@ -7,6 +7,8 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.SystemClock
+import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -168,12 +170,29 @@ object Updater {
     fun install(ctx: Context, apk: File) {
         val prefs = ctx.getSharedPreferences("native", Context.MODE_PRIVATE)
         val resumeAfterUpdate = prefs.getBoolean("resume", false)
-        check(prefs.edit()
-            .putBoolean("resumeAfterUpdate", resumeAfterUpdate)
-            .putBoolean("updatePending", true)
-            .commit()) { "Не удалось подготовить повторное подключение после обновления" }
 
         try {
+            if (resumeAfterUpdate) {
+                ctx.startService(
+                    Intent(ctx, QuietVpnService::class.java)
+                        .setAction(QuietVpnService.ACTION_STOP)
+                )
+                val deadline = SystemClock.elapsedRealtime() + 10_000
+                while (QuietVpnService.readState(ctx) != "off" &&
+                    SystemClock.elapsedRealtime() < deadline
+                ) {
+                    Thread.sleep(100)
+                }
+                check(QuietVpnService.readState(ctx) == "off") {
+                    "Не удалось остановить VPN перед обновлением"
+                }
+            }
+            check(prefs.edit()
+                .putBoolean("resume", false)
+                .putBoolean("resumeAfterUpdate", resumeAfterUpdate)
+                .putBoolean("updatePending", true)
+                .commit()) { "Не удалось подготовить повторное подключение после обновления" }
+
             val installer = ctx.packageManager.packageInstaller
             val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
             params.setAppPackageName(ctx.packageName)
@@ -195,10 +214,23 @@ object Updater {
                 session.commit(pi.intentSender)
             }
         } catch (e: Exception) {
-            prefs.edit()
+            val saved = prefs.edit()
                 .putBoolean("updatePending", false)
                 .putBoolean("resumeAfterUpdate", false)
-                .apply()
+                .putBoolean("resume", resumeAfterUpdate)
+                .commit()
+            if (!saved) e.addSuppressed(IllegalStateException("Не удалось восстановить состояние обновления"))
+            if (resumeAfterUpdate) {
+                try {
+                    ContextCompat.startForegroundService(
+                        ctx,
+                        Intent(ctx, QuietVpnService::class.java)
+                            .setAction(QuietVpnService.ACTION_START_SAVED)
+                    )
+                } catch (restoreError: Exception) {
+                    e.addSuppressed(restoreError)
+                }
+            }
             throw e
         }
     }

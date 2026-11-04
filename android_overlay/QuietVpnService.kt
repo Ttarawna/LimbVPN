@@ -88,7 +88,6 @@ class QuietVpnService : VpnService() {
                 emptyList()
             }
             val storedState = parts.firstOrNull() ?: "off"
-            val pid = parts.getOrNull(1)?.toIntOrNull()
             val savedBootCount = parts.getOrNull(3)?.toIntOrNull()
             val storedRevision = parts.getOrNull(4)?.toLongOrNull() ?: 0L
             val currentBootCount = try {
@@ -96,23 +95,12 @@ class QuietVpnService : VpnService() {
             } catch (_: Exception) {
                 -1
             }
-            val processPath = pid?.let { File("/proc/$it") }
-            val processName = try {
-                pid?.let {
-                    File("/proc/$it/cmdline").readBytes().decodeToString().substringBefore('\u0000')
-                }
-            } catch (_: Exception) {
-                null
-            }?.takeIf { it.isNotEmpty() }
-            val serviceAlive = when {
-                processName == "${ctx.packageName}:vpn" -> true
-                processName != null -> false
-                else -> processPath?.exists() == true
-            }
-            val sameBoot = currentBootCount < 0 || savedBootCount == null ||
-                savedBootCount < 0 || savedBootCount == currentBootCount
+            // /proc can be inaccessible even while the VPN process is alive.
+            val sameBoot = currentBootCount < 0 ||
+                (savedBootCount != null && savedBootCount >= 0 &&
+                    savedBootCount == currentBootCount)
             val staleActiveState = storedState in listOf("on", "connecting", "blocked") &&
-                (!serviceAlive || !sameBoot)
+                !sameBoot
             val state = if (staleActiveState) "off" else storedState
             val revision = storedRevision + if (staleActiveState) 1L else 0L
             val since = if (state == "on") parts.getOrNull(2)?.toLongOrNull() else null
