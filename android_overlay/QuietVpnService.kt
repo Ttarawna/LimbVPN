@@ -95,14 +95,21 @@ class QuietVpnService : VpnService() {
             } catch (_: Exception) {
                 -1
             }
+            val processPath = pid?.let { File("/proc/$it") }
             val processName = try {
-                pid?.let { File("/proc/$it/cmdline").readBytes().decodeToString().substringBefore('\u0000') }
+                pid?.let {
+                    File("/proc/$it/cmdline").readBytes().decodeToString().substringBefore('\u0000')
+                }
             } catch (_: Exception) {
                 null
+            }?.takeIf { it.isNotEmpty() }
+            val serviceAlive = when {
+                processName == "${ctx.packageName}:vpn" -> true
+                processName != null -> false
+                else -> processPath?.exists() == true
             }
-            val serviceAlive = processName == "${ctx.packageName}:vpn"
-            val sameBoot = currentBootCount < 0 ||
-                (savedBootCount != null && savedBootCount == currentBootCount)
+            val sameBoot = currentBootCount < 0 || savedBootCount == null ||
+                savedBootCount < 0 || savedBootCount == currentBootCount
             val state = if (storedState in listOf("on", "connecting", "blocked") &&
                 (!serviceAlive || !sameBoot)
             ) {
