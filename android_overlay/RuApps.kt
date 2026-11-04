@@ -3,6 +3,7 @@ package dev.quiet.quiet_vpn
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.util.AtomicFile
+import java.io.File
 import java.io.FileNotFoundException
 import org.json.JSONArray
 import org.json.JSONObject
