@@ -53,14 +53,19 @@ class BootReceiver : BroadcastReceiver() {
             return
         }
         if (action != Intent.ACTION_BOOT_COMPLETED &&
+            action != Intent.ACTION_USER_UNLOCKED &&
             action != "android.intent.action.QUICKBOOT_POWERON" &&
             action != "com.htc.intent.action.QUICKBOOT_POWERON"
         ) return
 
         val prefs = context.getSharedPreferences("native", Context.MODE_PRIVATE)
         val auto = prefs.getBoolean("autostart", false)
-        log(context, "получено событие загрузки, автозапуск включён: $auto")
+        log(context, "получено событие $action, автозапуск включён: $auto")
         if (!auto) return
+        if (SecureStore.read(context, "session") == null) {
+            log(context, "нет сохранённого профиля для автозапуска")
+            return
+        }
         if (VpnService.prepare(context) != null) {
             log(context, "нет разрешения VPN, подключитесь вручную один раз")
             return
@@ -71,7 +76,7 @@ class BootReceiver : BroadcastReceiver() {
                 Intent(context, QuietVpnService::class.java)
                     .setAction(QuietVpnService.ACTION_START_SAVED)
             )
-            log(context, "служба VPN запущена")
+            log(context, "запрошен запуск службы VPN")
         } catch (e: Exception) {
             log(context, "ошибка запуска службы: " + e.message)
         }

@@ -15,15 +15,30 @@ class _Palette {
 
   factory _Palette.of(bool on, Brightness brightness) {
     if (on) {
-      return const _Palette(Color(0xFF0E3A44), Color(0xFFE6F4F1), Color(0xFF8FB7B5),
-          Color(0xFF2C6670), Color(0xFFE6F4F1), Color(0xFF0E3A44));
+      return const _Palette(
+          Color(0xFF0E3A44),
+          Color(0xFFE6F4F1),
+          Color(0xFF8FB7B5),
+          Color(0xFF2C6670),
+          Color(0xFFE6F4F1),
+          Color(0xFF0E3A44));
     }
     if (brightness == Brightness.dark) {
-      return const _Palette(Color(0xFF14191C), Color(0xFFDDE6E9), Color(0xFF8A9BA2),
-          Color(0xFF2A363B), Color(0xFFDDE6E9), Color(0xFF14191C));
+      return const _Palette(
+          Color(0xFF14191C),
+          Color(0xFFDDE6E9),
+          Color(0xFF8A9BA2),
+          Color(0xFF2A363B),
+          Color(0xFFDDE6E9),
+          Color(0xFF14191C));
     }
-    return const _Palette(Color(0xFFE8EDEF), Color(0xFF12303A), Color(0xFF5F7680),
-        Color(0xFFB9C8CE), Color(0xFF12303A), Color(0xFFE8EDEF));
+    return const _Palette(
+        Color(0xFFE8EDEF),
+        Color(0xFF12303A),
+        Color(0xFF5F7680),
+        Color(0xFFB9C8CE),
+        Color(0xFF12303A),
+        Color(0xFFE8EDEF));
   }
 }
 
@@ -55,7 +70,8 @@ class _HomePageState extends State<HomePage> {
     final message = widget.app.notice;
     if (message != null && mounted) {
       widget.app.notice = null;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -69,15 +85,20 @@ class _HomePageState extends State<HomePage> {
         content: const Text(
             'Приложение скачает обновление и попросит подтвердить установку. На время установки VPN отключится и включится снова сам.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Позже')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Обновить')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Позже')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Обновить')),
         ],
       ),
     );
     if (ok != true || !mounted) return;
     final error = await widget.app.installUpdate();
     if (error != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
     }
   }
 
@@ -133,7 +154,8 @@ class _HomePageState extends State<HomePage> {
             style: buttonStyle,
             onPressed: () => app.checkForUpdate(force: true),
             icon: const Icon(Icons.refresh),
-            label: Text(message == null ? 'Проверить обновления' : 'Проверить снова'),
+            label: Text(
+                message == null ? 'Проверить обновления' : 'Проверить снова'),
           ),
           if (message != null)
             Text(message,
@@ -156,7 +178,8 @@ class _HomePageState extends State<HomePage> {
   Future<void> _toggle() async {
     final message = await widget.app.toggle();
     if (message != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -184,7 +207,7 @@ class _HomePageState extends State<HomePage> {
         SnackBar(
           duration: const Duration(seconds: 8),
           content: const Text(
-              'Если после перезагрузки VPN не включится сам, разрешите автозапуск для Limb VPN в настройках телефона.'),
+              'Для Huawei: в «Запуск приложений» выберите Limb VPN → «Управлять вручную» и включите автозапуск, вторичный запуск и работу в фоне. На других устройствах разрешите автозапуск в настройках телефона.'),
           action: SnackBarAction(
             label: 'Открыть',
             onPressed: widget.app.vpn.openAutostartSettings,
@@ -239,10 +262,10 @@ class _HomePageState extends State<HomePage> {
       listenable: widget.app,
       builder: (context, _) {
         final vpnStatus = widget.app.vpn.status;
-        final status = widget.app.vpnOperationInProgress &&
-                vpnStatus == VpnStatus.off
-            ? VpnStatus.connecting
-            : vpnStatus;
+        final status =
+            widget.app.vpnOperationInProgress && vpnStatus == VpnStatus.off
+                ? VpnStatus.connecting
+                : vpnStatus;
         final on = status == VpnStatus.on;
         final c = _Palette.of(on, brightness);
         return AnimatedContainer(
@@ -263,7 +286,9 @@ class _HomePageState extends State<HomePage> {
                           const SizedBox(height: 28),
                           Text(_statusText(status),
                               style: TextStyle(
-                                  color: c.fg, fontSize: 22, fontWeight: FontWeight.w600)),
+                                  color: c.fg,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w600)),
                           const SizedBox(height: 4),
                           _subtitle(c, status),
                           _updateControl(c),
@@ -294,10 +319,13 @@ class _HomePageState extends State<HomePage> {
 
   Widget _power(_Palette c, VpnStatus status) {
     final on = status == VpnStatus.on;
-    final busy = status == VpnStatus.connecting || status == VpnStatus.disconnecting;
+    final busy =
+        status == VpnStatus.connecting || status == VpnStatus.disconnecting;
     return Semantics(
       button: true,
-      label: (on || status == VpnStatus.blocked) ? 'Выключить VPN' : 'Включить VPN',
+      label: (on || status == VpnStatus.blocked)
+          ? 'Выключить VPN'
+          : 'Включить VPN',
       child: GestureDetector(
         onTap: busy ? null : _toggle,
         child: SizedBox(
@@ -310,7 +338,8 @@ class _HomePageState extends State<HomePage> {
                 SizedBox(
                   width: 200,
                   height: 200,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: c.muted),
+                  child:
+                      CircularProgressIndicator(strokeWidth: 2, color: c.muted),
                 ),
               AnimatedContainer(
                 duration: const Duration(milliseconds: 400),
@@ -334,11 +363,14 @@ class _HomePageState extends State<HomePage> {
   Widget _subtitle(_Palette c, VpnStatus status) {
     final style = TextStyle(color: c.muted, fontSize: 14);
     if (status == VpnStatus.on) {
-      return _Uptime(since: widget.app.vpn.since ?? DateTime.now(), style: style);
+      return _Uptime(
+          since: widget.app.vpn.since ?? DateTime.now(), style: style);
     }
     if (status == VpnStatus.blocked) {
-      return Text('Связь потеряна, пробую восстановить. Нажмите кнопку, чтобы отключить.',
-          textAlign: TextAlign.center, style: style);
+      return Text(
+          'Связь потеряна, пробую восстановить. Нажмите кнопку, чтобы отключить.',
+          textAlign: TextAlign.center,
+          style: style);
     }
     if (widget.app.profile == null && status == VpnStatus.off) {
       return Text('Добавьте профиль, чтобы начать', style: style);
@@ -355,13 +387,16 @@ class _HomePageState extends State<HomePage> {
               children: [
                 Text(p.maskedName,
                     style: TextStyle(
-                        color: c.fg, fontSize: 16, fontWeight: FontWeight.w500)),
+                        color: c.fg,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500)),
                 Text('Профиль хранится в зашифрованном виде',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: c.muted, fontSize: 14)),
                 TextButton(
                   onPressed: _delete,
-                  child: Text(_confirmDelete ? 'Точно удалить?' : 'Удалить профиль',
+                  child: Text(
+                      _confirmDelete ? 'Точно удалить?' : 'Удалить профиль',
                       style: TextStyle(color: c.muted)),
                 ),
                 const SizedBox(height: 8),
@@ -420,7 +455,8 @@ class _HomePageState extends State<HomePage> {
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(_error ?? '',
                         textAlign: TextAlign.center,
-                        style: const TextStyle(color: Color(0xFFC0463A), fontSize: 14)),
+                        style: const TextStyle(
+                            color: Color(0xFFC0463A), fontSize: 14)),
                   ),
                 ),
               ],

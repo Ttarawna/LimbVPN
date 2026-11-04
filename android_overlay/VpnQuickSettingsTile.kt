@@ -19,8 +19,11 @@ class VpnQuickSettingsTile : TileService() {
     override fun onClick() {
         super.onClick()
         val state = QuietVpnService.readState(this)
-        val shouldStop = state == "on" || state == "blocked" ||
-            state == "connecting" || state == "disconnecting"
+        if (state == "connecting" || state == "disconnecting") {
+            updateTile()
+            return
+        }
+        val shouldStop = state == "on" || state == "blocked"
 
         if (!shouldStop && VpnService.prepare(this) != null) {
             startActivityAndCollapse(
@@ -28,6 +31,15 @@ class VpnQuickSettingsTile : TileService() {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             )
             Toast.makeText(this, "Сначала разрешите VPN в приложении", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!shouldStop && SecureStore.read(this, "session") == null) {
+            BootReceiver.log(this, "плитка VPN: нет сохранённого профиля")
+            startActivityAndCollapse(
+                Intent(this, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            )
+            Toast.makeText(this, "Сначала подключитесь один раз в приложении", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -47,7 +59,8 @@ class VpnQuickSettingsTile : TileService() {
 
     private fun updateTile() {
         val state = QuietVpnService.readState(this)
-        val active = state == "on" || state == "blocked" || state == "connecting"
+        val active = state == "on" || state == "blocked" ||
+            state == "connecting" || state == "disconnecting"
         qsTile?.apply {
             this.state = if (active) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
             if (Build.VERSION.SDK_INT >= 29) {

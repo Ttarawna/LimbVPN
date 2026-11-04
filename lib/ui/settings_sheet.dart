@@ -28,9 +28,11 @@ class _SettingsSheetState extends State<SettingsSheet> {
               'Без него при сбое ядра VPN трафик пойдёт напрямую и зарубежные сайты увидят ваш настоящий IP.'),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx, false), child: const Text('Оставить')),
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Оставить')),
             TextButton(
-                onPressed: () => Navigator.pop(ctx, true), child: const Text('Отключить')),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Отключить')),
           ],
         ),
       );
@@ -58,7 +60,8 @@ class _SettingsSheetState extends State<SettingsSheet> {
               onPressed: () => Clipboard.setData(ClipboardData(text: text)),
               child: const Text('Скопировать')),
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Закрыть')),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Закрыть')),
         ],
       ),
     );
@@ -82,7 +85,9 @@ class _SettingsSheetState extends State<SettingsSheet> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Закрыть')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Закрыть')),
         ],
       ),
     );
@@ -163,7 +168,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
               ListTile(
                 title: const Text('Разрешение на автозапуск в системе'),
                 subtitle: const Text(
-                    'Переключатель автозапуска находится на главном экране. Если VPN не включается сам после перезагрузки, разрешите автозапуск для Limb VPN в настройках телефона. Надёжнее всего включить «Всегда включённый VPN».'),
+                    'Переключатель автозапуска находится на главном экране. Huawei: для Limb VPN включите ручное управление, автозапуск, вторичный запуск и работу в фоне. На других устройствах разрешите автозапуск. Надёжнее всего включить «Всегда включённый VPN».'),
                 trailing: const Icon(Icons.open_in_new),
                 onTap: app.vpn.openAutostartSettings,
               ),

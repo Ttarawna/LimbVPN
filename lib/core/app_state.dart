@@ -138,10 +138,19 @@ class AppState extends ChangeNotifier {
     final count = await vpn.bootCount();
     if (count == null) return;
     final last = _prefs.getInt('lastBootCount');
-    await _prefs.setInt('lastBootCount', count);
-    if (last == null || last == count) return; // перезагрузки не было
+    if (last == null) {
+      await _prefs.setInt('lastBootCount', count);
+      return;
+    }
+    if (last == count) return; // перезагрузки не было
     await Future<void>.delayed(const Duration(milliseconds: 800));
-    if (vpn.status == VpnStatus.off) await toggle();
+    if (vpn.status == VpnStatus.off) {
+      final error = await toggle();
+      if (error != null) return;
+    }
+    if (vpn.status == VpnStatus.on) {
+      await _prefs.setInt('lastBootCount', count);
+    }
   }
 
   /// Бросает [LinkFormatException], если ссылка не подходит.

@@ -1,5 +1,6 @@
 package dev.quiet.quiet_vpn
 
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,8 +11,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
+import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
 import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Network
 import android.net.VpnService
 import android.os.Binder
@@ -88,6 +91,7 @@ class QuietVpnService : VpnService() {
                 emptyList()
             }
             val storedState = parts.firstOrNull() ?: "off"
+            val savedPid = parts.getOrNull(1)?.toIntOrNull()
             val savedBootCount = parts.getOrNull(3)?.toIntOrNull()
             val storedRevision = parts.getOrNull(4)?.toLongOrNull() ?: 0L
             val currentBootCount = try {
@@ -99,12 +103,23 @@ class QuietVpnService : VpnService() {
             val sameBoot = currentBootCount < 0 ||
                 (savedBootCount != null && savedBootCount >= 0 &&
                     savedBootCount == currentBootCount)
+            val serviceAlive = savedPid?.let { isVpnServiceRunning(ctx, it) }
             val staleActiveState = storedState in listOf("on", "connecting", "blocked") &&
-                !sameBoot
+                (!sameBoot || serviceAlive == false)
             val state = if (staleActiveState) "off" else storedState
             val revision = storedRevision + if (staleActiveState) 1L else 0L
             val since = if (state == "on") parts.getOrNull(2)?.toLongOrNull() else null
             return mapOf("state" to state, "since" to since, "revision" to revision)
+        }
+
+        @Suppress("DEPRECATION")
+        private fun isVpnServiceRunning(ctx: Context, pid: Int): Boolean? = try {
+            val manager = ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            manager.getRunningServices(Int.MAX_VALUE).any {
+                it.service == ComponentName(ctx, QuietVpnService::class.java) && it.pid == pid
+            }
+        } catch (_: Exception) {
+            null
         }
 
         fun readState(ctx: Context): String = readStatus(ctx)["state"] as? String ?: "off"
@@ -118,6 +133,8 @@ class QuietVpnService : VpnService() {
     private var underlyingNetwork: Network? = null
     @Volatile
     private var networkLost = false
+    @Volatile
+    private var configuredLocalDns: List<String> = emptyList()
     private var tun: ParcelFileDescriptor? = null
     private var session: Session? = null
     private var core: IBinder? = null
@@ -172,9 +189,20 @@ class QuietVpnService : VpnService() {
             val changed = networkLost || (underlyingNetwork != null && underlyingNetwork != network)
             underlyingNetwork = network
             networkLost = false
-            if (changed) {
-                handler.removeCallbacks(networkRefreshRunnable)
-                handler.postDelayed(networkRefreshRunnable, 1500)
+            if (changed) scheduleNetworkRefresh()
+        }
+
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+            if (finishing || !everOn) return
+            try {
+                if (localDnsServers(this@QuietVpnService) != configuredLocalDns) {
+                    scheduleNetworkRefresh()
+                }
+            } catch (e: Exception) {
+                BootReceiver.log(
+                    this@QuietVpnService,
+                    "не удалось проверить DNS после смены сети: " + (e.message ?: e.toString())
+                )
             }
         }
 
@@ -229,7 +257,15 @@ class QuietVpnService : VpnService() {
             return START_NOT_STICKY
         }
         // Служба запущена как foreground: уведомление нужно показать сразу.
-        if (intent?.action != ACTION_STOP) startForegroundCompat("Подключаю…")
+        if (intent?.action != ACTION_STOP) {
+            try {
+                startForegroundCompat("Подключаю…")
+            } catch (e: Exception) {
+                BootReceiver.log(this, "не удалось запустить foreground-службу: " + (e.message ?: e.toString()))
+                finish("error:Не удалось запустить службу VPN")
+                return START_NOT_STICKY
+            }
+        }
         when (intent?.action) {
             ACTION_STOP -> finish("off")
             ACTION_START -> {
@@ -265,7 +301,6 @@ class QuietVpnService : VpnService() {
     private fun startOnce(s: Session, fromUser: Boolean) {
         if (started) return
         started = true
-        startForegroundCompat("Подключаю…")
         if (fromUser) {
             try {
                 SecureStore.write(this, "session", s.toJson())
@@ -308,7 +343,7 @@ class QuietVpnService : VpnService() {
         val home = File(filesDir, "mihomo").apply { mkdirs() }
         val builder = Builder()
             .setSession("Limb VPN")
-            .setMtu(9000)
+            .setMtu(1400)
             .addAddress("172.19.0.1", 30)
             .addRoute("0.0.0.0", 0)
             .addDnsServer("172.19.0.2")
@@ -387,6 +422,7 @@ class QuietVpnService : VpnService() {
             data.writeStringList(localDns)
             b.transact(Ipc.CORE_START, data, reply, 0)
             reply.readException() // бросит исключение с текстом ошибки ядра
+            configuredLocalDns = localDns
         } finally {
             data.recycle()
             reply.recycle()
@@ -475,6 +511,12 @@ class QuietVpnService : VpnService() {
                 BootReceiver.log(this, "не удалось отслеживать смену сети: " + (e.message ?: e.toString()))
             }
         }
+    }
+
+    private fun scheduleNetworkRefresh() {
+        if (finishing) return
+        handler.removeCallbacks(networkRefreshRunnable)
+        handler.postDelayed(networkRefreshRunnable, 1500)
     }
 
     private fun unregisterNetworkCallback() {
@@ -744,14 +786,15 @@ class QuietVpnService : VpnService() {
     }
 
     private fun startForegroundCompat(text: String) {
-        try {
-            val n = buildNotification(text)
-            if (Build.VERSION.SDK_INT >= 34) {
-                startForeground(NOTIF_ID, n, 0x400) // тип systemExempted
-            } else {
-                startForeground(NOTIF_ID, n)
-            }
-        } catch (_: Exception) {
+        val notification = buildNotification(text)
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(
+                NOTIF_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
+            )
+        } else {
+            startForeground(NOTIF_ID, notification)
         }
     }
 

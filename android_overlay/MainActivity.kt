@@ -125,10 +125,14 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "setAutostart" -> {
-                    getSharedPreferences("native", Context.MODE_PRIVATE).edit()
+                    val saved = getSharedPreferences("native", Context.MODE_PRIVATE).edit()
                         .putBoolean("autostart", call.argument<Boolean>("enabled") ?: false)
-                        .apply()
-                    result.success(null)
+                        .commit()
+                    if (saved) {
+                        result.success(null)
+                    } else {
+                        result.error("autostart_save_failed", "Не удалось сохранить настройку автозапуска", null)
+                    }
                 }
                 "forgetSession" -> {
                     SecureStore.delete(this, "session")
