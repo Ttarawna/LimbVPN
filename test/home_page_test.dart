@@ -128,6 +128,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: HomePage(app: app)));
     expect(find.text('Проверить обновления'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('Проверить обновления'));
     await tester.tap(find.text('Проверить обновления'));
     await tester.pumpAndSettle();
     expect(updates.checks, 1);

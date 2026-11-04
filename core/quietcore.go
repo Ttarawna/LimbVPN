@@ -22,6 +22,7 @@ import (
 	"github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub"
 	"github.com/metacubex/mihomo/hub/executor"
+	mihomolog "github.com/metacubex/mihomo/log"
 	"gopkg.in/yaml.v3"
 )
 
@@ -121,6 +122,11 @@ func Start(homeDir string, config string, tunFd int, p Protector, debug bool, lo
 		_ = syscall.Close(fd)
 		return fmt.Errorf("конфиг: %w", err)
 	}
+	restoreLogLevel := mihomolog.WARNING
+	if debug {
+		restoreLogLevel = mihomolog.DEBUG
+	}
+	defer mihomolog.SetLevel(restoreLogLevel)
 
 	fmt.Println("=== quietcore: версия Mihomo", constant.Version, "===")
 	fmt.Println("=== итоговый конфиг (логин, пароль и сервер скрыты) ===")
@@ -153,14 +159,22 @@ func Start(homeDir string, config string, tunFd int, p Protector, debug bool, lo
 		return fmt.Errorf("запуск Mihomo: %w", err)
 	}
 
-	// Mihomo не возвращает ошибку, если туннель не поднялся, а только пишет её в журнал.
-	// Поэтому через полторы секунды проверяем журнал сами.
+	// Ошибка запуска TUN не возвращается из hub.Parse, а появляется в журнале.
+	// Ждём явного успешного запуска, не задерживая подключение на весь тайм-аут.
 	readinessStartedAt := time.Now()
-	time.Sleep(1500 * time.Millisecond)
-	if line := findTunError(filepath.Join(homeDir, "core.log")); line != "" {
-		fmt.Println("=== timing: tun_ready_check =", time.Since(readinessStartedAt).Round(time.Millisecond), "===")
-		executor.Shutdown()
-		return errors.New(line)
+	logPath := filepath.Join(homeDir, "core.log")
+	readinessDeadline := readinessStartedAt.Add(1500 * time.Millisecond)
+	for {
+		ready, line := tunReadiness(logPath)
+		if line != "" {
+			fmt.Println("=== timing: tun_ready_check =", time.Since(readinessStartedAt).Round(time.Millisecond), "===")
+			executor.Shutdown()
+			return errors.New(line)
+		}
+		if ready || !time.Now().Before(readinessDeadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	fmt.Println("=== timing: tun_ready_check =", time.Since(readinessStartedAt).Round(time.Millisecond), "===")
 
@@ -201,20 +215,23 @@ func selfTest(cfg []byte) {
 	}
 }
 
-func findTunError(path string) string {
+func tunReadiness(path string) (bool, string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return ""
+		return false, ""
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		if strings.Contains(line, "Start TUN listening error") {
 			if i := strings.Index(line, "msg="); i >= 0 {
-				return strings.Trim(line[i+4:], `"`)
+				return false, strings.Trim(line[i+4:], `"`)
 			}
-			return line
+			return false, line
+		}
+		if strings.Contains(line, "[TUN] Tun adapter listening at:") {
+			return true, ""
 		}
 	}
-	return ""
+	return false, ""
 }
 
 // Stop останавливает ядро.
@@ -238,6 +255,13 @@ func patchConfig(raw string, fd int, debug bool, localDNS []string) ([]byte, err
 	}
 	if m == nil {
 		return nil, errors.New("пустой конфиг")
+	}
+	// INFO нужен только до подтверждения запуска TUN; Start восстанавливает
+	// штатный уровень логирования при возврате.
+	if debug {
+		m["log-level"] = "debug"
+	} else {
+		m["log-level"] = "info"
 	}
 	tun, _ := m["tun"].(map[string]any)
 	if tun == nil {

@@ -10,38 +10,45 @@ import 'app_exclusion_sheet.dart';
 import 'settings_sheet.dart';
 
 class _Palette {
-  const _Palette(this.bg, this.fg, this.muted, this.ring, this.btn, this.btnFg);
+  const _Palette(
+    this.bg,
+    this.fg,
+    this.muted,
+    this.ring,
+    this.panel,
+    this.accent,
+  );
 
-  final Color bg, fg, muted, ring, btn, btnFg;
+  final Color bg, fg, muted, ring, panel, accent;
 
   factory _Palette.of(bool on, Brightness brightness) {
     if (on) {
       return const _Palette(
-        Color(0xFF0E3A44),
-        Color(0xFFE6F4F1),
-        Color(0xFF8FB7B5),
-        Color(0xFF2C6670),
-        Color(0xFFE6F4F1),
-        Color(0xFF0E3A44),
+        Color(0xFFEAF4F1),
+        Color(0xFF153C37),
+        Color(0xFF58756F),
+        Color(0xFFBFD8D1),
+        Color(0xFFFFFFFF),
+        Color(0xFF176B5B),
       );
     }
     if (brightness == Brightness.dark) {
       return const _Palette(
         Color(0xFF14191C),
-        Color(0xFFDDE6E9),
-        Color(0xFF8A9BA2),
-        Color(0xFF2A363B),
-        Color(0xFFDDE6E9),
-        Color(0xFF14191C),
+        Color(0xFFE0E8EB),
+        Color(0xFF91A0A6),
+        Color(0xFF344147),
+        Color(0xFF1E262A),
+        Color(0xFF8ED6C1),
       );
     }
     return const _Palette(
-      Color(0xFFE8EDEF),
-      Color(0xFF12303A),
-      Color(0xFF5F7680),
-      Color(0xFFB9C8CE),
-      Color(0xFF12303A),
-      Color(0xFFE8EDEF),
+      Color(0xFFF3F6F7),
+      Color(0xFF1C3038),
+      Color(0xFF657980),
+      Color(0xFFD5E0E3),
+      Color(0xFFFFFFFF),
+      Color(0xFF1A6C5E),
     );
   }
 }
@@ -285,7 +292,7 @@ class _HomePageState extends State<HomePage> {
         final on = status == VpnStatus.on;
         final c = _Palette.of(on, brightness);
         return AnimatedContainer(
-          duration: const Duration(milliseconds: 500),
+          duration: const Duration(milliseconds: 350),
           color: c.bg,
           child: Scaffold(
             backgroundColor: Colors.transparent,
@@ -293,31 +300,28 @@ class _HomePageState extends State<HomePage> {
               children: [
                 SafeArea(
                   child: Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _power(c, status),
-                          const SizedBox(height: 28),
-                          Text(
-                            _statusText(status),
-                            style: TextStyle(
-                              color: c.fg,
-                              fontSize: 22,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          _subtitle(c, status),
-                          _updateControl(c),
-                          const SizedBox(height: 28),
-                          _profileArea(c),
-                          if (widget.app.vpn.hasAppExclusion) ...[
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 520),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _brand(c),
+                            const SizedBox(height: 20),
+                            _connectionCard(c, status),
                             const SizedBox(height: 16),
-                            _appExclusionControl(c),
+                            _profileArea(c),
+                            if (widget.app.vpn.hasAppExclusion) ...[
+                              const SizedBox(height: 12),
+                              _appExclusionControl(c),
+                            ],
+                            Align(
+                              alignment: Alignment.center,
+                              child: _updateControl(c),
+                            ),
                           ],
-                        ],
+                        ),
                       ),
                     ),
                   ),
@@ -347,58 +351,240 @@ class _HomePageState extends State<HomePage> {
         : null;
     final excludedCount =
         app.installedApps.where((entry) => entry.excluded).length;
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 340),
+    final summary = app.appScanInProgress
+        ? app.appScanTotalCount == 0
+            ? 'Подготовка списка приложений…'
+            : 'Проверено ${app.appScanCompletedCount} из '
+                '${app.appScanTotalCount} приложений'
+        : app.excludeRuApps
+            ? 'Без VPN: $excludedCount приложений'
+            : 'Исключения выключены';
+    return _panel(
+      c,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            app.appScanInProgress
-                ? app.appScanTotalCount == 0
-                    ? 'Подготовка списка приложений…'
-                    : 'Проверено ${app.appScanCompletedCount} из '
-                        '${app.appScanTotalCount} приложений'
-                : app.excludeRuApps
-                    ? 'Выбрано без VPN: $excludedCount'
-                    : 'Исключения выключены · выбрано: $excludedCount',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: c.muted),
-          ),
-          if (app.appScanInProgress) ...[
-            const SizedBox(height: 8),
-            LinearProgressIndicator(value: progress),
-          ],
-          if (app.appScanError != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                app.appScanError!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Color(0xFFC0463A)),
-              ),
-            ),
-          const SizedBox(height: 8),
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 8,
+          Row(
             children: [
-              OutlinedButton.icon(
-                onPressed: app.appScanInProgress ? null : app.scanInstalledApps,
-                icon: const Icon(Icons.manage_search),
-                label: Text(
-                  app.appScanComplete ? 'Проверить приложения' : 'Проверить',
+              _iconBadge(c, Icons.apps_outlined),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Приложения без VPN',
+                      style: TextStyle(
+                        color: c.fg,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(summary, style: TextStyle(color: c.muted)),
+                  ],
                 ),
               ),
-              if (app.appScanComplete)
-                TextButton(
-                  onPressed: _manageAppExclusions,
-                  child: const Text('Настроить исключения'),
-                ),
             ],
           ),
+          if (!app.appScanInProgress && app.appScanComplete) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 4,
+              children: [
+                TextButton.icon(
+                  onPressed: app.scanInstalledApps,
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Проверить приложения'),
+                ),
+                TextButton.icon(
+                  onPressed: _manageAppExclusions,
+                  icon: const Icon(Icons.tune, size: 18),
+                  label: const Text('Настроить исключения'),
+                ),
+              ],
+            ),
+          ],
+          if (app.appScanInProgress) ...[
+            const SizedBox(height: 12),
+            LinearProgressIndicator(value: progress),
+          ],
+          if (app.appScanError != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              app.appScanError!,
+              style: const TextStyle(color: Color(0xFFC0463A)),
+            ),
+          ],
+          if (!app.appScanComplete && !app.appScanInProgress) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: app.scanInstalledApps,
+              icon: const Icon(Icons.manage_search),
+              label: const Text('Проверить приложения'),
+            ),
+          ],
         ],
       ),
     );
   }
+
+  Widget _brand(_Palette c) => Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: c.accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(Icons.shield_outlined, color: c.accent),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Limb VPN',
+                style: TextStyle(
+                  color: c.fg,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                'Защищённое подключение',
+                style: TextStyle(color: c.muted, fontSize: 13),
+              ),
+            ],
+          ),
+        ],
+      );
+
+  Widget _connectionCard(_Palette c, VpnStatus status) {
+    final icon = switch (status) {
+      VpnStatus.on => Icons.check_circle_outline,
+      VpnStatus.blocked => Icons.warning_amber_rounded,
+      VpnStatus.connecting || VpnStatus.disconnecting => Icons.sync_rounded,
+      VpnStatus.off => Icons.shield_outlined,
+    };
+    final Widget subtitle = switch (status) {
+      VpnStatus.on => _subtitle(c, status),
+      VpnStatus.connecting => Text('Подготавливаем защищённое соединение'),
+      VpnStatus.disconnecting => Text('Завершаем подключение'),
+      VpnStatus.blocked => _subtitle(c, status),
+      VpnStatus.off => widget.app.profile == null
+          ? const Text('Добавьте профиль, чтобы начать')
+          : const Text('Трафик сейчас не защищён VPN'),
+    };
+    final busy =
+        status == VpnStatus.connecting || status == VpnStatus.disconnecting;
+    return _panel(
+      c,
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _iconBadge(c, icon, active: status == VpnStatus.on),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      status == VpnStatus.on ? 'Защита включена' : 'Состояние',
+                      style: TextStyle(color: c.muted, fontSize: 13),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _statusText(status),
+                      style: TextStyle(
+                        color: c.fg,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (status == VpnStatus.on)
+                Container(
+                  width: 9,
+                  height: 9,
+                  decoration: BoxDecoration(
+                    color: c.accent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _power(c, status),
+          const SizedBox(height: 12),
+          DefaultTextStyle(
+            style: TextStyle(color: c.muted, fontSize: 14, height: 1.4),
+            textAlign: TextAlign.center,
+            child: subtitle,
+          ),
+          if (busy) ...[
+            const SizedBox(height: 14),
+            const LinearProgressIndicator(),
+          ],
+          if (status == VpnStatus.on) ...[
+            const SizedBox(height: 18),
+            Divider(height: 1, color: c.ring),
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.public, size: 17, color: c.accent),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'Россия — напрямую · остальное — через VPN',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: c.fg,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _panel(
+    _Palette c, {
+    required Widget child,
+    EdgeInsetsGeometry padding = const EdgeInsets.all(16),
+  }) =>
+      Container(
+        padding: padding,
+        decoration: BoxDecoration(
+          color: c.panel,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: c.ring.withValues(alpha: 0.65)),
+        ),
+        child: child,
+      );
+
+  Widget _iconBadge(_Palette c, IconData icon, {bool active = false}) =>
+      Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: (active ? c.accent : c.muted).withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Icon(icon, color: active ? c.accent : c.muted, size: 22),
+      );
 
   Widget _power(_Palette c, VpnStatus status) {
     final on = status == VpnStatus.on;
@@ -412,33 +598,40 @@ class _HomePageState extends State<HomePage> {
       child: GestureDetector(
         onTap: busy ? null : _toggle,
         child: SizedBox(
-          width: 200,
-          height: 200,
+          width: 144,
+          height: 144,
           child: Stack(
             alignment: Alignment.center,
             children: [
               if (busy)
                 SizedBox(
-                  width: 200,
-                  height: 200,
-                  child: CircularProgressIndicator(
+                  width: 144,
+                  height: 144,
+                  child: const CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: c.muted,
                   ),
                 ),
               AnimatedContainer(
-                duration: const Duration(milliseconds: 400),
-                width: 176,
-                height: 176,
+                duration: const Duration(milliseconds: 300),
+                width: 120,
+                height: 120,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: on ? c.btn : Colors.transparent,
-                  border: Border.all(color: on ? c.btn : c.ring, width: 2),
+                  color: on ? c.accent : c.bg,
+                  border: Border.all(color: on ? c.accent : c.ring, width: 1),
+                  boxShadow: [
+                    if (on)
+                      BoxShadow(
+                        color: c.accent.withValues(alpha: 0.2),
+                        blurRadius: 22,
+                        offset: const Offset(0, 8),
+                      ),
+                  ],
                 ),
                 child: Icon(
                   Icons.power_settings_new,
-                  size: 56,
-                  color: on ? c.btnFg : c.fg,
+                  size: 48,
+                  color: on ? Colors.white : c.fg,
                 ),
               ),
             ],
@@ -471,35 +664,81 @@ class _HomePageState extends State<HomePage> {
 
   Widget _profileArea(_Palette c) {
     final p = widget.app.profile;
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 340),
+    return _panel(
+      c,
       child: p != null
-          ? Column(
+          ? Row(
               children: [
-                Text(
-                  p.maskedName,
-                  style: TextStyle(
-                    color: c.fg,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
+                _iconBadge(c, Icons.vpn_key_outlined),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        p.maskedName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: c.fg,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Профиль сохранён безопасно',
+                        style: TextStyle(color: c.muted, fontSize: 12),
+                      ),
+                    ],
                   ),
                 ),
-                Text(
-                  'Профиль хранится в зашифрованном виде',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: c.muted, fontSize: 14),
-                ),
-                TextButton(
+                IconButton(
+                  tooltip: _confirmDelete
+                      ? 'Подтвердить удаление'
+                      : 'Удалить профиль',
                   onPressed: _delete,
-                  child: Text(
-                    _confirmDelete ? 'Точно удалить?' : 'Удалить профиль',
-                    style: TextStyle(color: c.muted),
+                  icon: Icon(
+                    _confirmDelete
+                        ? Icons.delete_forever_outlined
+                        : Icons.delete_outline,
                   ),
+                  color: _confirmDelete
+                      ? Theme.of(context).colorScheme.error
+                      : c.muted,
                 ),
               ],
             )
           : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                Row(
+                  children: [
+                    _iconBadge(c, Icons.add_link),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Добавить профиль',
+                            style: TextStyle(
+                              color: c.fg,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'Вставьте ссылку подключения',
+                            style: TextStyle(color: c.muted, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
                 TextField(
                   controller: _url,
                   style: TextStyle(color: c.fg),
@@ -511,42 +750,49 @@ class _HomePageState extends State<HomePage> {
                     hintStyle: TextStyle(color: c.muted),
                     suffixIcon: IconButton(
                       tooltip: 'Вставить из буфера',
-                      icon: Icon(Icons.content_paste, color: c.muted),
+                      icon: Icon(Icons.content_paste, color: c.accent),
                       onPressed: _paste,
                     ),
+                    filled: true,
+                    fillColor: c.bg,
                     enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide(color: c.ring),
                     ),
                     focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: c.fg),
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide(color: c.accent, width: 1.5),
                     ),
                   ),
                 ),
                 const SizedBox(height: 12),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: c.fg,
-                    foregroundColor: c.bg,
-                  ),
-                  onPressed: _add,
-                  child: const Text('Добавить'),
-                ),
                 SizedBox(
-                  height: 40,
-                  child: Padding(
+                  height: 48,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: c.accent,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    onPressed: _add,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Добавить профиль'),
+                  ),
+                ),
+                if (_error != null)
+                  Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
-                      _error ?? '',
+                      _error!,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Color(0xFFC0463A),
-                        fontSize: 14,
+                        fontSize: 13,
                       ),
                     ),
                   ),
-                ),
               ],
             ),
     );
