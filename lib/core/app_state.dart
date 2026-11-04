@@ -35,6 +35,12 @@ class AppState extends ChangeNotifier {
   bool debugMode = false;
   bool vpnOperationInProgress = false;
   List<Map<String, Object>> lastConnectionTimings = const [];
+  List<AppExclusionEntry> installedApps = const [];
+  bool appScanComplete = false;
+  bool appScanInProgress = false;
+  int appScanCompletedCount = 0;
+  int appScanTotalCount = 0;
+  String? appScanError;
 
   /// Доступное обновление (null, если нет) и ход загрузки в процентах.
   UpdateInfo? update;
@@ -76,12 +82,69 @@ class AppState extends ChangeNotifier {
       }
     }
     notifyListeners();
+    if (vpn.hasAppExclusion) unawaited(_loadAppInventory());
     _updates.setErrorHandler((m) {
       updateProgress = null;
       notice = 'Не удалось установить обновление: $m';
       notifyListeners();
     });
     unawaited(checkForUpdate());
+  }
+
+  Future<void> _loadAppInventory() async {
+    try {
+      final inventory = await vpn.readAppExclusionInventory();
+      installedApps = inventory.apps;
+      appScanComplete = inventory.scanCompleted;
+      notifyListeners();
+      if (!inventory.scanCompleted) await scanInstalledApps();
+    } catch (e) {
+      appScanError = 'Не удалось прочитать список приложений: $e';
+      notifyListeners();
+    }
+  }
+
+  Future<void> scanInstalledApps() async {
+    if (appScanInProgress) return;
+    appScanInProgress = true;
+    appScanError = null;
+    appScanCompletedCount = 0;
+    appScanTotalCount = 0;
+    notifyListeners();
+    try {
+      final inventory = await vpn.scanInstalledApps((completed, total) {
+        appScanCompletedCount = completed;
+        appScanTotalCount = total;
+        notifyListeners();
+      });
+      installedApps = inventory.apps;
+      appScanComplete = inventory.scanCompleted;
+    } catch (e) {
+      appScanError = 'Не удалось проверить приложения: $e';
+    } finally {
+      appScanInProgress = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> saveExcludedApps(Set<String> packageNames) async {
+    final installedPackages =
+        installedApps.map((app) => app.packageName).toSet();
+    if (!installedPackages.containsAll(packageNames)) {
+      throw ArgumentError('Выбрано приложение, которого нет в списке');
+    }
+    await vpn.saveExcludedApps(packageNames);
+    installedApps = installedApps
+        .map(
+          (app) => AppExclusionEntry(
+            packageName: app.packageName,
+            label: app.label,
+            inRussianCatalog: app.inRussianCatalog,
+            excluded: packageNames.contains(app.packageName),
+          ),
+        )
+        .toList(growable: false);
+    notifyListeners();
   }
 
   /// Проверяет обновления не чаще раза в 12 часов, если [force] не задан.
@@ -173,6 +236,14 @@ class AppState extends ChangeNotifier {
     final st = vpn.status;
     if (st == VpnStatus.connecting || st == VpnStatus.disconnecting)
       return null;
+    if (st == VpnStatus.off &&
+        excludeRuApps &&
+        vpn.hasAppExclusion &&
+        !appScanComplete) {
+      return appScanInProgress
+          ? 'Дождитесь завершения проверки приложений'
+          : 'Сначала проверьте приложения кнопкой на главном экране';
+    }
     vpnOperationInProgress = true;
     notifyListeners();
     List<Map<String, Object>>? timings;

@@ -24,6 +24,7 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
   int _statusRevision = 0;
   int _serviceRevision = -1;
   Timer? _statusSyncTimer;
+  void Function(int completed, int total)? _appScanProgress;
 
   @override
   VpnStatus get status => _status;
@@ -73,6 +74,57 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
     }
   }
 
+  @override
+  Future<AppExclusionInventory> readAppExclusionInventory() async {
+    final json = await _channel.invokeMethod<String>(
+      'readAppExclusionInventory',
+    );
+    if (json == null)
+      throw StateError('Не удалось прочитать список приложений');
+    return _decodeAppInventory(json);
+  }
+
+  @override
+  Future<AppExclusionInventory> scanInstalledApps(
+    void Function(int completed, int total) onProgress,
+  ) async {
+    _appScanProgress = onProgress;
+    try {
+      final json = await _channel.invokeMethod<String>('scanInstalledApps');
+      if (json == null) throw StateError('Сканер не вернул список приложений');
+      return _decodeAppInventory(json);
+    } finally {
+      _appScanProgress = null;
+    }
+  }
+
+  @override
+  Future<void> saveExcludedApps(Set<String> packageNames) async {
+    await _channel.invokeMethod<void>(
+      'saveExcludedApps',
+      jsonEncode(packageNames.toList()),
+    );
+  }
+
+  AppExclusionInventory _decodeAppInventory(String text) {
+    final json = jsonDecode(text);
+    if (json is! Map<String, dynamic> ||
+        json['scanCompleted'] is! bool ||
+        json['apps'] is! List) {
+      throw const FormatException('Некорректный список приложений');
+    }
+    final apps = (json['apps'] as List).map((item) {
+      if (item is! Map<String, dynamic>) {
+        throw const FormatException('Некорректная запись приложения');
+      }
+      return AppExclusionEntry.fromJson(item);
+    }).toList(growable: false);
+    return AppExclusionInventory(
+      scanCompleted: json['scanCompleted'] as bool,
+      apps: apps,
+    );
+  }
+
   Future<void> refreshStatus() async {
     final revision = ++_statusRevision;
     try {
@@ -113,6 +165,15 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
   }
 
   Future<dynamic> _onCall(MethodCall call) async {
+    if (call.method == 'appScanProgress' && call.arguments is Map) {
+      final progress = call.arguments as Map;
+      final completed = progress['completed'];
+      final total = progress['total'];
+      if (completed is int && total is int) {
+        _appScanProgress?.call(completed, total);
+      }
+      return;
+    }
     if (call.method != 'status' || call.arguments is! Map) return;
 
     final details = call.arguments as Map;
@@ -180,14 +241,12 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
       } on PlatformException {
         // Notification permission is optional for establishing a VPN.
       }
-      await _channel
-          .invokeMethod<void>('startVpn', {
-            'config': config,
-            'excludeRu': excludeRuApps,
-            'debug': debug,
-            'killSwitch': killSwitch,
-          })
-          .timeout(const Duration(seconds: 30));
+      await _channel.invokeMethod<void>('startVpn', {
+        'config': config,
+        'excludeRu': excludeRuApps,
+        'debug': debug,
+        'killSwitch': killSwitch,
+      }).timeout(const Duration(seconds: 30));
     } on TimeoutException {
       try {
         await _channel.invokeMethod<void>('stopVpn');

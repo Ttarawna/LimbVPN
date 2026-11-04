@@ -2,95 +2,146 @@ package dev.quiet.quiet_vpn
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
-import android.content.pm.PackageManager
-import android.os.Build
+import android.util.AtomicFile
+import java.io.FileNotFoundException
+import org.json.JSONArray
+import org.json.JSONObject
 
-/**
- * Автоматически находит российские приложения. Их исключают из VPN,
- * потому что только так Android перестаёт сообщать им, что VPN включён.
- * Признаки: имя пакета, магазин RuStore, название бренда в имени приложения.
- */
+/** Russian-region suggestions use exact package IDs; other apps are left to user choice. */
 object RuApps {
 
-    data class App(val pkg: String, val label: String)
-
-    private val prefixes = listOf(
-        "ru.", "com.yandex.", "com.vkontakte.", "com.vk.", "com.idamob.",
-        "com.wildberries.", "com.avito.", "com.ozon.", "com.sberbank.",
-        "com.mts.", "com.dodopizza.", "com.rostics"
+    data class App(
+        val pkg: String,
+        val label: String,
+        val inRussianCatalog: Boolean,
+        val excluded: Boolean
     )
 
-    // Эти приложения не исключаем: ими пользуются и с VPN (браузеры и т.п.).
-    private val neverExclude = setOf(
-        "com.yandex.browser", "com.yandex.browser.lite", "com.yandex.browser.beta",
-        "com.yandex.browser.alpha", "ru.yandex.searchplugin.beta"
+    private data class Inventory(
+        val scanCompleted: Boolean,
+        val apps: List<App>
     )
 
-    // Известные приложения, чьи пакеты не начинаются с типичных префиксов.
-    private val extra = setOf(
-        "com.idamob.tinkoff.android", "com.wildberries.ru", "com.avito.android",
-        "com.vkontakte.android", "ru.rostel"
+    private const val INVENTORY_FILE = "ru_apps.json"
+
+    private val russianCatalog = setOf(
+        "com.idamob.tinkoff.android",
+        "com.wildberries.ru",
+        "com.avito.android",
+        "com.vkontakte.android",
+        "ru.rostel",
+        "ru.vk.store"
     )
 
-    // Названия российских брендов (начало названия приложения, регистр не важен).
-    // Нужны для приложений, у которых имя пакета не говорит о России.
-    private val brands = listOf(
-        "вкусно", "ростикс", "rostic", "додо", "dodo", "самокат", "купер", "вкусвилл",
-        "бургер кинг", "пятёрочка", "пятерочка", "перекрёсток", "перекресток",
-        "сбер", "sber", "тинькофф", "т-банк", "t-bank", "tinkoff", "втб", "vtb",
-        "альфа-банк", "альфа банк", "газпромбанк", "райффайзен", "росбанк",
-        "мтс", "билайн", "мегафон", "tele2", "теле2", "госуслуги", "почта россии",
-        "ржд", "аэрофлот", "wildberries", "вайлдберриз", "ozon", "озон", "авито", "avito",
-        "вконтакте", "яндекс", "дзен", "2гис", "2gis", "окко", "кинопоиск", "леруа",
-        "м.видео", "эльдорадо", "спортмастер", "золотое яблоко", "мегамаркет", "fix price"
-    )
-
-    fun detect(ctx: Context): List<App> {
+    fun scan(ctx: Context, onProgress: (Int, Int) -> Unit): List<App> {
+        onProgress(0, 0)
         val pm = ctx.packageManager
-        val apps = try {
-            pm.getInstalledApplications(0)
-        } catch (_: Exception) {
-            emptyList<ApplicationInfo>()
-        }
-        val result = ArrayList<App>()
-        for (info in apps) {
-            classify(ctx, pm, info)?.let { result.add(it) }
-        }
-        return result.sortedBy { it.label.lowercase() }
+        @Suppress("DEPRECATION")
+        val installed = pm.getInstalledApplications(0)
+            .filter { it.packageName != ctx.packageName }
+        val previous = readState(ctx)
+        val previousApps = previous.apps.associateBy { it.pkg }
+        val apps = installed.mapIndexed { index, info ->
+            if (index % 16 == 0 || index == installed.lastIndex) {
+                onProgress(index + 1, installed.size)
+            }
+            val catalogMatch = info.packageName in russianCatalog
+            val excluded = if (!previous.scanCompleted) {
+                catalogMatch
+            } else if (info.packageName in previousApps) {
+                previousApps.getValue(info.packageName).excluded
+            } else {
+                catalogMatch
+            }
+            App(
+                pkg = info.packageName,
+                label = try {
+                    info.loadLabel(pm).toString().ifBlank { info.packageName }
+                } catch (_: Exception) {
+                    info.packageName
+                },
+                inRussianCatalog = catalogMatch,
+                excluded = excluded
+            )
+        }.sortedBy { it.label.lowercase() }
+
+        writeState(ctx, Inventory(scanCompleted = true, apps = apps))
+        if (installed.isEmpty()) onProgress(0, 0)
+        return apps
     }
 
-    /** Проверка одного приложения (например, только что установленного). */
-    fun isRussian(ctx: Context, pkg: String): Boolean = try {
-        val pm = ctx.packageManager
-        classify(ctx, pm, pm.getApplicationInfo(pkg, 0)) != null
-    } catch (_: Exception) {
-        false
+    fun readInventory(ctx: Context): String {
+        return encodeInventory(readState(ctx))
     }
 
-    private fun classify(ctx: Context, pm: PackageManager, info: ApplicationInfo): App? {
-        val pkg = info.packageName
-        if (pkg == ctx.packageName || pkg in neverExclude) return null
-        val isPureSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0 &&
-            (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0
-        if (isPureSystem) return null
-
-        val label = try {
-            info.loadLabel(pm).toString()
-        } catch (_: Exception) {
-            pkg
+    fun saveSelection(ctx: Context, packages: Set<String>) {
+        val inventory = readState(ctx)
+        if (!inventory.scanCompleted) {
+            throw IllegalStateException("Сначала проверьте установленные приложения")
         }
-        val lower = label.lowercase().trim()
-        val byName = prefixes.any { pkg.startsWith(it) } || pkg in extra
-        val byStore = installer(pm, pkg) == "ru.vk.store" // RuStore
-        val byBrand = brands.any { lower.startsWith(it) }
-        return if (byName || byStore || byBrand) App(pkg, label) else null
+        val knownPackages = inventory.apps.map { it.pkg }.toSet()
+        if (!knownPackages.containsAll(packages)) {
+            throw IllegalArgumentException("Выбрано неизвестное приложение")
+        }
+        val updated = inventory.apps.map { app ->
+            app.copy(excluded = app.pkg in packages)
+        }
+        writeState(ctx, inventory.copy(apps = updated))
     }
 
-    @Suppress("DEPRECATION")
-    private fun installer(pm: PackageManager, pkg: String): String? = try {
-        if (Build.VERSION.SDK_INT >= 30) pm.getInstallSourceInfo(pkg).installingPackageName
-        else pm.getInstallerPackageName(pkg)
-    } catch (_: Exception) {
-        null
+    fun selected(ctx: Context): List<App> {
+        return readState(ctx).apps
+            .filter { it.excluded }
+    }
+
+    private fun readState(ctx: Context): Inventory {
+        val file = AtomicFile(File(ctx.filesDir, INVENTORY_FILE))
+        val json = try {
+            file.openRead().bufferedReader().use { it.readText() }
+        } catch (_: FileNotFoundException) {
+            return Inventory(scanCompleted = false, apps = emptyList())
+        }
+        val root = JSONObject(json)
+        val array = root.getJSONArray("apps")
+        val apps = (0 until array.length()).map { index ->
+            val item = array.getJSONObject(index)
+            App(
+                pkg = item.getString("package"),
+                label = item.getString("label"),
+                inRussianCatalog = item.getBoolean("catalog"),
+                excluded = item.getBoolean("excluded")
+            )
+        }
+        return Inventory(root.getBoolean("scanCompleted"), apps)
+    }
+
+    private fun writeState(ctx: Context, inventory: Inventory) {
+        val file = AtomicFile(File(ctx.filesDir, INVENTORY_FILE))
+        val output = file.startWrite()
+        try {
+            output.write(encodeInventory(inventory).toByteArray(Charsets.UTF_8))
+            file.finishWrite(output)
+        } catch (e: Exception) {
+            file.failWrite(output)
+            throw e
+        }
+    }
+
+    private fun encodeInventory(inventory: Inventory): String =
+        JSONObject()
+            .put("scanCompleted", inventory.scanCompleted)
+            .put("apps", encodeApps(inventory.apps))
+            .toString()
+
+    private fun encodeApps(apps: List<App>): JSONArray = JSONArray().apply {
+        apps.forEach { app ->
+            put(
+                JSONObject()
+                    .put("package", app.pkg)
+                    .put("label", app.label)
+                    .put("catalog", app.inRussianCatalog)
+                    .put("excluded", app.excluded                    )
+            )
+        }
     }
 }

@@ -3,6 +3,49 @@ import 'package:flutter/foundation.dart';
 /// blocked: ядро потеряно, туннель закрыт для трафика (kill switch), идёт восстановление.
 enum VpnStatus { off, connecting, on, disconnecting, blocked }
 
+class AppExclusionEntry {
+  const AppExclusionEntry({
+    required this.packageName,
+    required this.label,
+    required this.inRussianCatalog,
+    required this.excluded,
+  });
+
+  final String packageName;
+  final String label;
+  final bool inRussianCatalog;
+  final bool excluded;
+
+  factory AppExclusionEntry.fromJson(Map<String, dynamic> json) {
+    final packageName = json['package'] as String?;
+    final label = json['label'] as String?;
+    final inRussianCatalog = json['catalog'] as bool?;
+    final excluded = json['excluded'] as bool?;
+    if (packageName == null ||
+        label == null ||
+        inRussianCatalog == null ||
+        excluded == null) {
+      throw const FormatException('Некорректная запись приложения');
+    }
+    return AppExclusionEntry(
+      packageName: packageName,
+      label: label,
+      inRussianCatalog: inRussianCatalog,
+      excluded: excluded,
+    );
+  }
+}
+
+class AppExclusionInventory {
+  const AppExclusionInventory({
+    required this.scanCompleted,
+    required this.apps,
+  });
+
+  final bool scanCompleted;
+  final List<AppExclusionEntry> apps;
+}
+
 /// Единственная точка контакта интерфейса с ядром.
 /// Настоящая реализация (Android VpnService, Windows-служба и т.д.) появится позже
 /// и заменит FakeVpnController, интерфейс при этом не изменится.
@@ -24,6 +67,16 @@ abstract class VpnController extends ChangeNotifier {
 
   Future<String> readLog() async => '';
 
+  Future<AppExclusionInventory> readAppExclusionInventory() async =>
+      const AppExclusionInventory(scanCompleted: true, apps: []);
+
+  Future<AppExclusionInventory> scanInstalledApps(
+    void Function(int completed, int total) onProgress,
+  ) async =>
+      const AppExclusionInventory(scanCompleted: true, apps: []);
+
+  Future<void> saveExcludedApps(Set<String> packageNames) async {}
+
   Future<List<String>> localDnsServers() async => const ['127.0.0.1'];
 
   Future<void> recordConnectionTimings(
@@ -41,8 +94,12 @@ abstract class VpnController extends ChangeNotifier {
 
   /// [config] — готовый YAML для Mihomo.
   /// [killSwitch] — блокировать зарубежный трафик при обрыве.
-  Future<void> connect(String config,
-      {required bool killSwitch, bool excludeRuApps = false, bool debug = false});
+  Future<void> connect(
+    String config, {
+    required bool killSwitch,
+    bool excludeRuApps = false,
+    bool debug = false,
+  });
   Future<void> disconnect();
 }
 
@@ -58,9 +115,15 @@ class FakeVpnController extends VpnController {
   DateTime? get since => _since;
 
   @override
-  Future<void> connect(String config,
-      {required bool killSwitch, bool excludeRuApps = false, bool debug = false}) async {
-    debugPrint('Fake connect, config: ${config.length} символов, killSwitch=$killSwitch');
+  Future<void> connect(
+    String config, {
+    required bool killSwitch,
+    bool excludeRuApps = false,
+    bool debug = false,
+  }) async {
+    debugPrint(
+      'Fake connect, config: ${config.length} символов, killSwitch=$killSwitch',
+    );
     _status = VpnStatus.connecting;
     notifyListeners();
     await Future<void>.delayed(const Duration(milliseconds: 1200));

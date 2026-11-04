@@ -177,8 +177,8 @@ class _SettingsSheetState extends State<SettingsSheet> {
                     final status = state == null
                         ? 'Состояние станет известно после подключения.'
                         : state
-                        ? 'Сейчас: включена.'
-                        : 'Сейчас: выключена. Включите её, чтобы трафик не шёл напрямую, если систему закроет саму службу VPN.';
+                            ? 'Сейчас: включена.'
+                            : 'Сейчас: выключена. Включите её, чтобы трафик не шёл напрямую, если систему закроет саму службу VPN.';
                     return Text(
                       'В настройках Android включите «Всегда включённый VPN» и «Блокировать соединения без VPN» для Limb VPN. $status',
                     );
@@ -212,9 +212,9 @@ class _SettingsSheetState extends State<SettingsSheet> {
               SwitchListTile(
                 value: app.excludeRuApps,
                 onChanged: (v) => app.setFlag(Flag.excludeRuApps, v),
-                title: const Text('Российские приложения без VPN'),
+                title: const Text('Выбранные приложения без VPN'),
                 subtitle: const Text(
-                  'Банки, Госуслуги, магазины и другие российские приложения определяются автоматически и работают вне VPN, поэтому не видят его. Весь их трафик идёт напрямую.',
+                  'Применяется к приложениям, отмеченным в списке на главном экране. Их трафик, включая DNS, идёт напрямую.',
                 ),
               ),
               ListTile(

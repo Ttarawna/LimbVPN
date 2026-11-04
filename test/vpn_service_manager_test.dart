@@ -14,16 +14,16 @@ void main() {
   test('reads local DNS servers from Android', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-          if (call.method == 'statusDetails') {
-            return <String, Object?>{
-              'state': 'off',
-              'since': null,
-              'revision': 0,
-            };
-          }
-          expect(call.method, 'localDnsServers');
-          return <String>['192.168.1.1'];
-        });
+      if (call.method == 'statusDetails') {
+        return <String, Object?>{
+          'state': 'off',
+          'since': null,
+          'revision': 0,
+        };
+      }
+      expect(call.method, 'localDnsServers');
+      return <String>['192.168.1.1'];
+    });
 
     final controller = MieruServiceManager();
     try {
@@ -33,6 +33,52 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, null);
     }
+  });
+
+  test('reads app scan results and forwards scan progress', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'statusDetails') {
+        return <String, Object?>{
+          'state': 'off',
+          'since': null,
+          'revision': 0,
+        };
+      }
+      if (call.method == 'readAppExclusionInventory') {
+        return '{"scanCompleted":true,"apps":[]}';
+      }
+      expect(call.method, 'scanInstalledApps');
+      await messenger.handlePlatformMessage(
+        channel.name,
+        channel.codec.encodeMethodCall(
+          const MethodCall('appScanProgress', {'completed': 3, 'total': 9}),
+        ),
+        null,
+      );
+      return '{"scanCompleted":true,"apps":[{"package":"com.vkontakte.android",'
+          '"label":"VK","catalog":true,"excluded":true}]}';
+    });
+
+    final controller = MieruServiceManager();
+    addTearDown(() {
+      controller.dispose();
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+
+    final cached = await controller.readAppExclusionInventory();
+    expect(cached.scanCompleted, isTrue);
+    final progress = <List<int>>[];
+    final result = await controller.scanInstalledApps(
+      (completed, total) => progress.add([completed, total]),
+    );
+
+    expect(progress, [
+      [3, 9],
+    ]);
+    expect(result.apps.single.packageName, 'com.vkontakte.android');
+    expect(result.apps.single.excluded, isTrue);
   });
 
   test(
@@ -46,9 +92,9 @@ void main() {
 
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
-            expect(call.method, 'statusDetails');
-            return status;
-          });
+        expect(call.method, 'statusDetails');
+        return status;
+      });
 
       final controller = MieruServiceManager();
       try {

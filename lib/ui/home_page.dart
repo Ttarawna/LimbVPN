@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../core/app_state.dart';
 import '../core/mieru_link.dart';
 import '../core/vpn_controller.dart';
+import 'app_exclusion_sheet.dart';
 import 'settings_sheet.dart';
 
 class _Palette {
@@ -16,29 +17,32 @@ class _Palette {
   factory _Palette.of(bool on, Brightness brightness) {
     if (on) {
       return const _Palette(
-          Color(0xFF0E3A44),
-          Color(0xFFE6F4F1),
-          Color(0xFF8FB7B5),
-          Color(0xFF2C6670),
-          Color(0xFFE6F4F1),
-          Color(0xFF0E3A44));
+        Color(0xFF0E3A44),
+        Color(0xFFE6F4F1),
+        Color(0xFF8FB7B5),
+        Color(0xFF2C6670),
+        Color(0xFFE6F4F1),
+        Color(0xFF0E3A44),
+      );
     }
     if (brightness == Brightness.dark) {
       return const _Palette(
-          Color(0xFF14191C),
-          Color(0xFFDDE6E9),
-          Color(0xFF8A9BA2),
-          Color(0xFF2A363B),
-          Color(0xFFDDE6E9),
-          Color(0xFF14191C));
+        Color(0xFF14191C),
+        Color(0xFFDDE6E9),
+        Color(0xFF8A9BA2),
+        Color(0xFF2A363B),
+        Color(0xFFDDE6E9),
+        Color(0xFF14191C),
+      );
     }
     return const _Palette(
-        Color(0xFFE8EDEF),
-        Color(0xFF12303A),
-        Color(0xFF5F7680),
-        Color(0xFFB9C8CE),
-        Color(0xFF12303A),
-        Color(0xFFE8EDEF));
+      Color(0xFFE8EDEF),
+      Color(0xFF12303A),
+      Color(0xFF5F7680),
+      Color(0xFFB9C8CE),
+      Color(0xFF12303A),
+      Color(0xFFE8EDEF),
+    );
   }
 }
 
@@ -83,14 +87,17 @@ class _HomePageState extends State<HomePage> {
       builder: (ctx) => AlertDialog(
         title: Text('Обновить до версии ${info.version}?'),
         content: const Text(
-            'Приложение скачает обновление и попросит подтвердить установку. На время установки VPN отключится и включится снова сам.'),
+          'Приложение скачает обновление и попросит подтвердить установку. На время установки VPN отключится и включится снова сам.',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Позже')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Позже'),
+          ),
           TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Обновить')),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Обновить'),
+          ),
         ],
       ),
     );
@@ -155,12 +162,15 @@ class _HomePageState extends State<HomePage> {
             onPressed: () => app.checkForUpdate(force: true),
             icon: const Icon(Icons.refresh),
             label: Text(
-                message == null ? 'Проверить обновления' : 'Проверить снова'),
+              message == null ? 'Проверить обновления' : 'Проверить снова',
+            ),
           ),
           if (message != null)
-            Text(message,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: c.muted, fontSize: 12)),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: c.muted, fontSize: 12),
+            ),
         ],
       ),
     );
@@ -212,6 +222,29 @@ class _HomePageState extends State<HomePage> {
     _deleteTimer?.cancel();
     setState(() => _confirmDelete = false);
     await widget.app.deleteProfile();
+  }
+
+  Future<void> _manageAppExclusions() async {
+    final app = widget.app;
+    if (!app.appScanComplete || app.appScanInProgress) return;
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => AppExclusionSheet(
+        apps: app.installedApps,
+        onSave: app.saveExcludedApps,
+      ),
+    );
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Выбор сохранён и применится при следующем подключении',
+          ),
+        ),
+      );
+    }
   }
 
   /// Скрытое меню: 5 нажатий в левый нижний угол в течение 2 секунд.
@@ -267,16 +300,23 @@ class _HomePageState extends State<HomePage> {
                         children: [
                           _power(c, status),
                           const SizedBox(height: 28),
-                          Text(_statusText(status),
-                              style: TextStyle(
-                                  color: c.fg,
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w600)),
+                          Text(
+                            _statusText(status),
+                            style: TextStyle(
+                              color: c.fg,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                           const SizedBox(height: 4),
                           _subtitle(c, status),
                           _updateControl(c),
                           const SizedBox(height: 28),
                           _profileArea(c),
+                          if (widget.app.vpn.hasAppExclusion) ...[
+                            const SizedBox(height: 16),
+                            _appExclusionControl(c),
+                          ],
                         ],
                       ),
                     ),
@@ -297,6 +337,66 @@ class _HomePageState extends State<HomePage> {
           ),
         );
       },
+    );
+  }
+
+  Widget _appExclusionControl(_Palette c) {
+    final app = widget.app;
+    final progress = app.appScanTotalCount > 0
+        ? app.appScanCompletedCount / app.appScanTotalCount
+        : null;
+    final excludedCount =
+        app.installedApps.where((entry) => entry.excluded).length;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 340),
+      child: Column(
+        children: [
+          Text(
+            app.appScanInProgress
+                ? app.appScanTotalCount == 0
+                    ? 'Подготовка списка приложений…'
+                    : 'Проверено ${app.appScanCompletedCount} из '
+                        '${app.appScanTotalCount} приложений'
+                : app.excludeRuApps
+                    ? 'Выбрано без VPN: $excludedCount'
+                    : 'Исключения выключены · выбрано: $excludedCount',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: c.muted),
+          ),
+          if (app.appScanInProgress) ...[
+            const SizedBox(height: 8),
+            LinearProgressIndicator(value: progress),
+          ],
+          if (app.appScanError != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                app.appScanError!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Color(0xFFC0463A)),
+              ),
+            ),
+          const SizedBox(height: 8),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: app.appScanInProgress ? null : app.scanInstalledApps,
+                icon: const Icon(Icons.manage_search),
+                label: Text(
+                  app.appScanComplete ? 'Проверить приложения' : 'Проверить',
+                ),
+              ),
+              if (app.appScanComplete)
+                TextButton(
+                  onPressed: _manageAppExclusions,
+                  child: const Text('Настроить исключения'),
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -321,8 +421,10 @@ class _HomePageState extends State<HomePage> {
                 SizedBox(
                   width: 200,
                   height: 200,
-                  child:
-                      CircularProgressIndicator(strokeWidth: 2, color: c.muted),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: c.muted,
+                  ),
                 ),
               AnimatedContainer(
                 duration: const Duration(milliseconds: 400),
@@ -333,8 +435,11 @@ class _HomePageState extends State<HomePage> {
                   color: on ? c.btn : Colors.transparent,
                   border: Border.all(color: on ? c.btn : c.ring, width: 2),
                 ),
-                child: Icon(Icons.power_settings_new,
-                    size: 56, color: on ? c.btnFg : c.fg),
+                child: Icon(
+                  Icons.power_settings_new,
+                  size: 56,
+                  color: on ? c.btnFg : c.fg,
+                ),
               ),
             ],
           ),
@@ -347,13 +452,16 @@ class _HomePageState extends State<HomePage> {
     final style = TextStyle(color: c.muted, fontSize: 14);
     if (status == VpnStatus.on) {
       return _Uptime(
-          since: widget.app.vpn.since ?? DateTime.now(), style: style);
+        since: widget.app.vpn.since ?? DateTime.now(),
+        style: style,
+      );
     }
     if (status == VpnStatus.blocked) {
       return Text(
-          'Связь потеряна, пробую восстановить. Нажмите кнопку, чтобы отключить.',
-          textAlign: TextAlign.center,
-          style: style);
+        'Связь потеряна, пробую восстановить. Нажмите кнопку, чтобы отключить.',
+        textAlign: TextAlign.center,
+        style: style,
+      );
     }
     if (widget.app.profile == null && status == VpnStatus.off) {
       return Text('Добавьте профиль, чтобы начать', style: style);
@@ -368,19 +476,25 @@ class _HomePageState extends State<HomePage> {
       child: p != null
           ? Column(
               children: [
-                Text(p.maskedName,
-                    style: TextStyle(
-                        color: c.fg,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500)),
-                Text('Профиль хранится в зашифрованном виде',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: c.muted, fontSize: 14)),
+                Text(
+                  p.maskedName,
+                  style: TextStyle(
+                    color: c.fg,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                Text(
+                  'Профиль хранится в зашифрованном виде',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: c.muted, fontSize: 14),
+                ),
                 TextButton(
                   onPressed: _delete,
                   child: Text(
-                      _confirmDelete ? 'Точно удалить?' : 'Удалить профиль',
-                      style: TextStyle(color: c.muted)),
+                    _confirmDelete ? 'Точно удалить?' : 'Удалить профиль',
+                    style: TextStyle(color: c.muted),
+                  ),
                 ),
               ],
             )
@@ -413,7 +527,9 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(height: 12),
                 FilledButton(
                   style: FilledButton.styleFrom(
-                      backgroundColor: c.fg, foregroundColor: c.bg),
+                    backgroundColor: c.fg,
+                    foregroundColor: c.bg,
+                  ),
                   onPressed: _add,
                   child: const Text('Добавить'),
                 ),
@@ -421,10 +537,14 @@ class _HomePageState extends State<HomePage> {
                   height: 40,
                   child: Padding(
                     padding: const EdgeInsets.only(top: 8),
-                    child: Text(_error ?? '',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                            color: Color(0xFFC0463A), fontSize: 14)),
+                    child: Text(
+                      _error ?? '',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0xFFC0463A),
+                        fontSize: 14,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -485,7 +605,10 @@ class _UptimeState extends State<_Uptime> with WidgetsBindingObserver {
     final d = DateTime.now().difference(widget.since).inSeconds;
     final mm = (d ~/ 60).toString().padLeft(2, '0');
     final ss = (d % 60).toString().padLeft(2, '0');
-    return Text('РФ напрямую, остальное через VPN. $mm:$ss',
-        textAlign: TextAlign.center, style: widget.style);
+    return Text(
+      'РФ напрямую, остальное через VPN. $mm:$ss',
+      textAlign: TextAlign.center,
+      style: widget.style,
+    );
   }
 }

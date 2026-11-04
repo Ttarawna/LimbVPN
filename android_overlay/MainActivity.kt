@@ -17,6 +17,7 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : FlutterActivity() {
 
@@ -27,6 +28,7 @@ class MainActivity : FlutterActivity() {
     private var pendingStart: MethodChannel.Result? = null
     private var receiverRegistered = false
     private var updateChannel: MethodChannel? = null
+    private val appScanRunning = AtomicBoolean(false)
 
     // Служба работает в другом процессе и сообщает состояние широковещательными сообщениями.
     private val stateReceiver = object : BroadcastReceiver() {
@@ -133,6 +135,60 @@ class MainActivity : FlutterActivity() {
                             result.success(null)
                         } catch (e: Exception) {
                             result.error("bad_args", e.message, null)
+                        }
+                    }
+                }
+                "readAppExclusionInventory" -> {
+                    try {
+                        result.success(RuApps.readInventory(this))
+                    } catch (e: Exception) {
+                        result.error("app_inventory_failed", e.message, null)
+                    }
+                }
+                "scanInstalledApps" -> {
+                    if (!appScanRunning.compareAndSet(false, true)) {
+                        result.error("scan_in_progress", "Проверка уже выполняется", null)
+                    } else {
+                        Thread {
+                            try {
+                                RuApps.scan(this) { completed, total ->
+                                    runOnUiThread {
+                                        channel?.invokeMethod(
+                                            "appScanProgress",
+                                            mapOf("completed" to completed, "total" to total)
+                                        )
+                                    }
+                                }
+                                val inventory = RuApps.readInventory(this)
+                                runOnUiThread { result.success(inventory) }
+                            } catch (e: Exception) {
+                                runOnUiThread {
+                                    result.error(
+                                        "app_scan_failed",
+                                        e.message ?: "Не удалось проверить приложения",
+                                        null
+                                    )
+                                }
+                            } finally {
+                                appScanRunning.set(false)
+                            }
+                        }.start()
+                    }
+                }
+                "saveExcludedApps" -> {
+                    val json = call.argument<String>("packages")
+                    if (json == null) {
+                        result.error("bad_args", "Нет списка приложений", null)
+                    } else {
+                        try {
+                            val packages = JSONArray(json)
+                            val selected = (0 until packages.length()).map { index ->
+                                packages.getString(index)
+                            }.toSet()
+                            RuApps.saveSelection(this, selected)
+                            result.success(null)
+                        } catch (e: Exception) {
+                            result.error("app_selection_failed", e.message, null)
                         }
                     }
                 }

@@ -47,6 +47,40 @@ class _PreparingVpnController extends FakeVpnController {
   }) async {}
 }
 
+class _AppScanVpnController extends FakeVpnController {
+  final scanResult = Completer<AppExclusionInventory>();
+  Set<String>? savedPackages;
+  int scanCalls = 0;
+
+  @override
+  bool get hasAppExclusion => true;
+
+  @override
+  Future<AppExclusionInventory> readAppExclusionInventory() async =>
+      const AppExclusionInventory(scanCompleted: true, apps: [
+        AppExclusionEntry(
+          packageName: 'com.vkontakte.android',
+          label: 'VK',
+          inRussianCatalog: true,
+          excluded: true,
+        ),
+      ]);
+
+  @override
+  Future<AppExclusionInventory> scanInstalledApps(
+    void Function(int completed, int total) onProgress,
+  ) {
+    scanCalls++;
+    onProgress(2, 5);
+    return scanResult.future;
+  }
+
+  @override
+  Future<void> saveExcludedApps(Set<String> packageNames) async {
+    savedPackages = packageNames;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -105,5 +139,60 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(updates.installs, 1);
+  });
+
+  testWidgets('shows scan progress and lets the user correct app exclusions', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'lastUpdateCheck': DateTime.now().millisecondsSinceEpoch,
+    });
+    final prefs = await SharedPreferences.getInstance();
+    final vpn = _AppScanVpnController();
+    final app = AppState(
+      prefs,
+      vpn,
+      PrefsSecretStore(prefs),
+      _UpdateService(),
+    );
+    addTearDown(app.dispose);
+    await app.load();
+    await tester.pumpWidget(MaterialApp(home: HomePage(app: app)));
+    expect(vpn.scanCalls, 0);
+
+    await tester.ensureVisible(find.text('Проверить приложения'));
+    await tester.tap(find.text('Проверить приложения'));
+    await tester.pump();
+    expect(vpn.scanCalls, 1);
+    expect(find.text('Проверено 2 из 5 приложений'), findsOneWidget);
+
+    vpn.scanResult.complete(
+      const AppExclusionInventory(
+        scanCompleted: true,
+        apps: [
+          AppExclusionEntry(
+            packageName: 'com.vkontakte.android',
+            label: 'VK',
+            inRussianCatalog: true,
+            excluded: true,
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Настроить исключения'));
+    await tester.tap(find.text('Настроить исключения'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('VK'), findsOneWidget);
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.tap(find.text('Сохранить'));
+    await tester.pumpAndSettle();
+
+    expect(vpn.savedPackages, isEmpty);
+    expect(
+      find.text('Выбор сохранён и применится при следующем подключении'),
+      findsOneWidget,
+    );
   });
 }
