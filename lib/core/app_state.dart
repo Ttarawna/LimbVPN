@@ -34,6 +34,7 @@ class AppState extends ChangeNotifier {
   bool excludeRuApps = true;
   bool debugMode = false;
   bool vpnOperationInProgress = false;
+  List<Map<String, Object>> lastConnectionTimings = const [];
 
   /// Доступное обновление (null, если нет) и ход загрузки в процентах.
   UpdateInfo? update;
@@ -186,6 +187,7 @@ class AppState extends ChangeNotifier {
         ..reset()
         ..start();
     }
+
     try {
       if (st == VpnStatus.on || st == VpnStatus.blocked) {
         await vpn.disconnect();
@@ -223,15 +225,18 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       return 'Не удалось подключиться: $e';
     } finally {
-      vpnOperationInProgress = false;
-      notifyListeners();
       if (timings != null) {
         timings.add({
           'stage': stage!,
           'elapsed_ms': stageClock!.elapsedMilliseconds,
         });
+        lastConnectionTimings = List.unmodifiable(
+          timings.map((timing) => Map<String, Object>.unmodifiable(timing)),
+        );
         unawaited(vpn.recordConnectionTimings(timings));
       }
+      vpnOperationInProgress = false;
+      notifyListeners();
     }
   }
 

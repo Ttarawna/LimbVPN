@@ -15,8 +15,7 @@ class _NoUpdates implements UpdateService {
   Future<String?> install(
     UpdateInfo info,
     void Function(int percent) onProgress,
-  ) async =>
-      null;
+  ) async => null;
 
   @override
   void setErrorHandler(void Function(String message) handler) {}
@@ -41,35 +40,84 @@ class _DeferredVpnController extends FakeVpnController {
   }
 
   @override
-  Future<void> recordConnectionTimings(List<Map<String, Object>> timings) async {
+  Future<void> recordConnectionTimings(
+    List<Map<String, Object>> timings,
+  ) async {
     connectionTimings = timings;
+  }
+}
+
+class _NoDnsVpnController extends FakeVpnController {
+  int connectCalls = 0;
+
+  @override
+  Future<List<String>> localDnsServers() async =>
+      throw StateError('local DNS unavailable');
+
+  @override
+  Future<void> connect(
+    String config, {
+    required bool killSwitch,
+    bool excludeRuApps = false,
+    bool debug = false,
+  }) async {
+    connectCalls++;
   }
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('locks VPN toggle during connection preparation and records timings', () async {
+  test(
+    'locks VPN toggle during connection preparation and records timings',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final vpn = _DeferredVpnController();
+      final app = AppState(prefs, vpn, PrefsSecretStore(prefs), _NoUpdates());
+      addTearDown(app.dispose);
+      app.importLink('mierus://user:pass@192.0.2.1?port=443&protocol=TCP');
+
+      final firstToggle = app.toggle();
+      expect(app.vpnOperationInProgress, isTrue);
+      expect(await app.toggle(), isNull);
+      expect(vpn.connectCalls, 0);
+
+      vpn.dns.complete(['192.0.2.53']);
+      expect(await firstToggle, isNull);
+      expect(vpn.connectCalls, 1);
+      expect(app.vpnOperationInProgress, isFalse);
+      await Future<void>.delayed(Duration.zero);
+      expect(vpn.connectionTimings?.map((timing) => timing['stage']), [
+        'server_dns',
+        'local_dns',
+        'config_build',
+        'vpn_service_start',
+      ]);
+      expect(app.lastConnectionTimings.map((timing) => timing['stage']), [
+        'server_dns',
+        'local_dns',
+        'config_build',
+        'vpn_service_start',
+      ]);
+    },
+  );
+
+  test('does not connect when local DNS is unavailable', () async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
-    final vpn = _DeferredVpnController();
+    final vpn = _NoDnsVpnController();
     final app = AppState(prefs, vpn, PrefsSecretStore(prefs), _NoUpdates());
     addTearDown(app.dispose);
     app.importLink('mierus://user:pass@192.0.2.1?port=443&protocol=TCP');
 
-    final firstToggle = app.toggle();
-    expect(app.vpnOperationInProgress, isTrue);
-    expect(await app.toggle(), isNull);
-    expect(vpn.connectCalls, 0);
+    final error = await app.toggle();
 
-    vpn.dns.complete(['192.0.2.53']);
-    expect(await firstToggle, isNull);
-    expect(vpn.connectCalls, 1);
-    expect(app.vpnOperationInProgress, isFalse);
-    await Future<void>.delayed(Duration.zero);
-    expect(
-      vpn.connectionTimings?.map((timing) => timing['stage']),
-      ['server_dns', 'local_dns', 'config_build', 'vpn_service_start'],
-    );
+    expect(error, contains('Не удалось подключиться'));
+    expect(vpn.connectCalls, 0);
+    expect(app.lastConnectionTimings.map((timing) => timing['stage']), [
+      'server_dns',
+      'local_dns',
+    ]);
   });
 }

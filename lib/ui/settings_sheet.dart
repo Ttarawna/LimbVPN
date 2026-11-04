@@ -25,14 +25,17 @@ class _SettingsSheetState extends State<SettingsSheet> {
         builder: (ctx) => AlertDialog(
           title: const Text('Отключить kill switch?'),
           content: const Text(
-              'Без него при сбое ядра VPN трафик пойдёт напрямую и зарубежные сайты увидят ваш настоящий IP.'),
+            'Без него при сбое ядра VPN трафик пойдёт напрямую и зарубежные сайты увидят ваш настоящий IP.',
+          ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Оставить')),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Оставить'),
+            ),
             TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Отключить')),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Отключить'),
+            ),
           ],
         ),
       );
@@ -51,20 +54,51 @@ class _SettingsSheetState extends State<SettingsSheet> {
         content: SizedBox(
           width: double.maxFinite,
           child: SingleChildScrollView(
-            child: SelectableText(text,
-                style: const TextStyle(fontSize: 11, fontFamily: 'monospace')),
+            child: SelectableText(
+              text,
+              style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+            ),
           ),
         ),
         actions: [
           TextButton(
-              onPressed: () => Clipboard.setData(ClipboardData(text: text)),
-              child: const Text('Скопировать')),
+            onPressed: () => Clipboard.setData(ClipboardData(text: text)),
+            child: const Text('Скопировать'),
+          ),
           TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Закрыть')),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Закрыть'),
+          ),
         ],
       ),
     );
+  }
+
+  String _connectionTimingsText() {
+    final timings = app.lastConnectionTimings;
+    final lines = timings.map((timing) {
+      final name = switch (timing['stage']) {
+        'server_dns' => 'DNS сервера',
+        'local_dns' => 'Локальный DNS',
+        'config_build' => 'Подготовка конфига',
+        'vpn_service_start' => 'Запуск VPN',
+        _ => 'Этап',
+      };
+      return '$name: ${timing['elapsed_ms']} мс';
+    });
+    final total = timings.fold<int>(
+      0,
+      (sum, timing) => sum + (timing['elapsed_ms'] as int),
+    );
+    return '${lines.join('\n')}\nВсего: $total мс';
+  }
+
+  Future<void> _copyConnectionTimings() async {
+    await Clipboard.setData(ClipboardData(text: _connectionTimingsText()));
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Замеры скопированы')));
+    }
   }
 
   Future<void> _showExcluded() async {
@@ -78,16 +112,18 @@ class _SettingsSheetState extends State<SettingsSheet> {
           width: double.maxFinite,
           child: SingleChildScrollView(
             child: SelectableText(
-                text.isEmpty
-                    ? 'Список появится после подключения. Приложения определяются при каждом подключении.'
-                    : text,
-                style: const TextStyle(fontSize: 13)),
+              text.isEmpty
+                  ? 'Список появится после подключения. Приложения определяются при каждом подключении.'
+                  : text,
+              style: const TextStyle(fontSize: 13),
+            ),
           ),
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Закрыть')),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Закрыть'),
+          ),
         ],
       ),
     );
@@ -104,19 +140,23 @@ class _SettingsSheetState extends State<SettingsSheet> {
           children: [
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text('Расширенные настройки',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+              child: Text(
+                'Расширенные настройки',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
             ),
             const ListTile(
               title: Text('Российский трафик напрямую'),
               subtitle: Text(
-                  'Всегда включено. Всё российское идёт мимо VPN, остальное через VPN. Определяется автоматически.'),
+                'Всегда включено. Всё российское идёт мимо VPN, остальное через VPN. Определяется автоматически.',
+              ),
               trailing: Icon(Icons.check_circle_outline),
             ),
             const ListTile(
               title: Text('Сервер вне туннеля'),
               subtitle: Text(
-                  'Всегда включено. Адрес сервера идёт напрямую, чтобы VPN мог переподключиться.'),
+                'Всегда включено. Адрес сервера идёт напрямую, чтобы VPN мог переподключиться.',
+              ),
               trailing: Icon(Icons.check_circle_outline),
             ),
             SwitchListTile(
@@ -124,7 +164,8 @@ class _SettingsSheetState extends State<SettingsSheet> {
               onChanged: _setKillSwitch,
               title: const Text('Kill switch'),
               subtitle: const Text(
-                  'Если ядро VPN остановится или упадёт, весь трафик блокируется, пока соединение не восстановится или вы не отключите VPN. Приложение пытается переподключиться само.'),
+                'Если ядро VPN остановится или упадёт, весь трафик блокируется, пока соединение не восстановится или вы не отключите VPN. Приложение пытается переподключиться само.',
+              ),
             ),
             if (app.vpn.hasSystemKillSwitch)
               ListTile(
@@ -136,10 +177,11 @@ class _SettingsSheetState extends State<SettingsSheet> {
                     final status = state == null
                         ? 'Состояние станет известно после подключения.'
                         : state
-                            ? 'Сейчас: включена.'
-                            : 'Сейчас: выключена. Включите её, чтобы трафик не шёл напрямую, если систему закроет саму службу VPN.';
+                        ? 'Сейчас: включена.'
+                        : 'Сейчас: выключена. Включите её, чтобы трафик не шёл напрямую, если систему закроет саму службу VPN.';
                     return Text(
-                        'В настройках Android включите «Всегда включённый VPN» и «Блокировать соединения без VPN» для Limb VPN. $status');
+                      'В настройках Android включите «Всегда включённый VPN» и «Блокировать соединения без VPN» для Limb VPN. $status',
+                    );
                   },
                 ),
                 trailing: const Icon(Icons.open_in_new),
@@ -148,7 +190,8 @@ class _SettingsSheetState extends State<SettingsSheet> {
             const ListTile(
               title: Text('Раздельный DNS RU / VPN'),
               subtitle: Text(
-                  'Российские домены разрешаются локальным DNS активной сети, остальные — через удалённый DoH в VPN. Без подмены DNS при ошибке; исключённые приложения работают напрямую.'),
+                'Российские домены разрешаются локальным DNS активной сети, остальные — через удалённый DoH в VPN. Без подмены DNS при ошибке; исключённые приложения работают напрямую.',
+              ),
               trailing: Icon(Icons.check_circle_outline),
             ),
             SwitchListTile(
@@ -156,7 +199,8 @@ class _SettingsSheetState extends State<SettingsSheet> {
               onChanged: (v) => app.setFlag(Flag.adBlock, v),
               title: const Text('Блокировка рекламы'),
               subtitle: const Text(
-                  'Включится при следующем подключении и заблокирует известные рекламные домены. Исключённые из VPN приложения не фильтруются.'),
+                'Включится при следующем подключении и заблокирует известные рекламные домены. Исключённые из VPN приложения не фильтруются.',
+              ),
             ),
             SwitchListTile(
               value: app.blockIpv6,
@@ -170,7 +214,8 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 onChanged: (v) => app.setFlag(Flag.excludeRuApps, v),
                 title: const Text('Российские приложения без VPN'),
                 subtitle: const Text(
-                    'Банки, Госуслуги, магазины и другие российские приложения определяются автоматически и работают вне VPN, поэтому не видят его. Весь их трафик идёт напрямую.'),
+                  'Банки, Госуслуги, магазины и другие российские приложения определяются автоматически и работают вне VPN, поэтому не видят его. Весь их трафик идёт напрямую.',
+                ),
               ),
               ListTile(
                 title: const Text('Какие приложения без VPN'),
@@ -179,17 +224,34 @@ class _SettingsSheetState extends State<SettingsSheet> {
               ),
             ],
             if (app.vpn.hasLog) ...[
+              ListTile(
+                title: const Text('Замеры последнего подключения'),
+                subtitle: Text(
+                  app.lastConnectionTimings.isEmpty
+                      ? 'Появятся после следующей попытки подключения.'
+                      : _connectionTimingsText(),
+                ),
+                trailing: IconButton(
+                  tooltip: 'Скопировать замеры',
+                  onPressed: app.lastConnectionTimings.isEmpty
+                      ? null
+                      : _copyConnectionTimings,
+                  icon: const Icon(Icons.copy),
+                ),
+              ),
               SwitchListTile(
                 value: app.debugMode,
                 onChanged: (v) => app.setFlag(Flag.debug, v),
                 title: const Text('Режим диагностики'),
                 subtitle: const Text(
-                    'Подробный журнал и самопроверки. Открывает локальные порты, которые российские приложения могут обнаружить. Держите выключенным.'),
+                  'Подробный журнал и самопроверки. Открывает локальные порты, которые российские приложения могут обнаружить. Держите выключенным.',
+                ),
               ),
               ListTile(
                 title: const Text('Журнал ядра'),
                 subtitle: const Text(
-                    'Для диагностики. Можно скопировать и отправить разработчику.'),
+                  'Для диагностики. Можно скопировать и отправить разработчику.',
+                ),
                 trailing: const Icon(Icons.article_outlined),
                 onTap: _showLog,
               ),

@@ -121,11 +121,16 @@ void main() {
       expect(yaml, contains('nameserver: ["https://1.1.1.1/dns-query#mieru"]'));
       expect(yaml, contains('nameserver-policy:'));
       expect(yaml, contains('"+.ru": ["192.0.2.53","2001:db8::53"]'));
+      expect(yaml, contains('"+.su": ["192.0.2.53","2001:db8::53"]'));
+      expect(yaml, contains('"+.xn--p1ai": ["192.0.2.53","2001:db8::53"]'));
       expect(
         yaml,
         contains('"geosite:category-ru": ["192.0.2.53","2001:db8::53"]'),
       );
+      expect(yaml, contains('fake-ip-filter: ["+.ru", "+.su", "+.xn--p1ai"]'));
+      expect(yaml, isNot(contains('fallback:')));
       expect(yaml, isNot(contains('nameserver: [system]')));
+      expect(yaml, isNot(contains('proxy-server-nameserver:')));
       expect(yaml, isNot(contains('default-nameserver:')));
     });
 
