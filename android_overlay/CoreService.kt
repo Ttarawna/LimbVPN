@@ -67,7 +67,7 @@ class CoreService : Service() {
             tun.fd.toLong(),
             IpcProtector(protect),
             debug,
-            localDns.toTypedArray()
+            localDns.joinToString(",")
         )
     }
 

@@ -90,7 +90,8 @@ func protectFd(p Protector, f uintptr) bool {
 func Version() string { return constant.Version }
 
 // Start запускает ядро. tunFd — дескриптор туннеля от VpnService.
-func Start(homeDir string, config string, tunFd int, p Protector, debug bool, localDNS []string) error {
+// DNS-адреса передаются строкой, поскольку gomobile не поддерживает []string.
+func Start(homeDir string, config string, tunFd int, p Protector, debug bool, localDNS string) error {
 	mu.Lock()
 	defer mu.Unlock()
 	if running {
@@ -105,7 +106,11 @@ func Start(homeDir string, config string, tunFd int, p Protector, debug bool, lo
 		return fmt.Errorf("dup tun fd: %w", err)
 	}
 
-	cfg, err := patchConfig(config, fd, debug, localDNS)
+	var localDNSServers []string
+	if localDNS != "" {
+		localDNSServers = strings.Split(localDNS, ",")
+	}
+	cfg, err := patchConfig(config, fd, debug, localDNSServers)
 	if err != nil {
 		_ = syscall.Close(fd)
 		return fmt.Errorf("конфиг: %w", err)
