@@ -200,23 +200,6 @@ class _HomePageState extends State<HomePage> {
     if (data?.text != null) _url.text = data!.text!.trim();
   }
 
-  void _setAutostart(bool value) {
-    widget.app.setFlag(Flag.autostart, value);
-    if (value && widget.app.vpn.hasAutostart) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 8),
-          content: const Text(
-              'Для Huawei: в «Запуск приложений» выберите Limb VPN → «Управлять вручную» и включите автозапуск, вторичный запуск и работу в фоне. На других устройствах разрешите автозапуск в настройках телефона.'),
-          action: SnackBarAction(
-            label: 'Открыть',
-            onPressed: widget.app.vpn.openAutostartSettings,
-          ),
-        ),
-      );
-    }
-  }
-
   Future<void> _delete() async {
     if (!_confirmDelete) {
       setState(() => _confirmDelete = true);
@@ -398,21 +381,6 @@ class _HomePageState extends State<HomePage> {
                   child: Text(
                       _confirmDelete ? 'Точно удалить?' : 'Удалить профиль',
                       style: TextStyle(color: c.muted)),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Flexible(
-                      child: Text('Запускать при старте телефона',
-                          style: TextStyle(color: c.muted, fontSize: 14)),
-                    ),
-                    const SizedBox(width: 8),
-                    Switch(
-                      value: widget.app.autostart,
-                      onChanged: _setAutostart,
-                    ),
-                  ],
                 ),
               ],
             )

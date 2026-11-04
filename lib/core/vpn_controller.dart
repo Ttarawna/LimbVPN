@@ -26,25 +26,17 @@ abstract class VpnController extends ChangeNotifier {
 
   Future<List<String>> localDnsServers() async => const ['127.0.0.1'];
 
+  Future<void> recordConnectionTimings(
+    List<Map<String, Object>> timings,
+  ) async {}
+
   /// Открывает системные настройки VPN (на Android: «Блокировать соединения без VPN»).
   Future<void> openSystemVpnSettings() async {}
 
   /// Включена ли системная блокировка «без VPN». null, если неизвестно.
   Future<bool?> lockdownEnabled() async => null;
 
-  /// Есть ли автозапуск после перезагрузки и системные настройки для него.
-  bool get hasAutostart => false;
-
-  /// Счётчик перезагрузок телефона (null, если неизвестен).
-  Future<int?> bootCount() async => null;
-
-  /// Открывает системные настройки разрешения автозапуска для приложения.
-  Future<void> openAutostartSettings() async {}
-
-  /// Запускать VPN автоматически после перезагрузки телефона.
-  Future<void> setAutostart(bool enabled) async {}
-
-  /// Удаляет сохранённые для автозапуска параметры подключения.
+  /// Удаляет сохранённые параметры подключения.
   Future<void> forgetSession() async {}
 
   /// [config] — готовый YAML для Mihomo.

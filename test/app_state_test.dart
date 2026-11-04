@@ -25,6 +25,7 @@ class _NoUpdates implements UpdateService {
 class _DeferredVpnController extends FakeVpnController {
   final dns = Completer<List<String>>();
   int connectCalls = 0;
+  List<Map<String, Object>>? connectionTimings;
 
   @override
   Future<List<String>> localDnsServers() => dns.future;
@@ -38,40 +39,17 @@ class _DeferredVpnController extends FakeVpnController {
   }) async {
     connectCalls++;
   }
-}
-
-class _BootVpnController extends FakeVpnController {
-  int connectCalls = 0;
-  bool failConnect = true;
 
   @override
-  Future<int?> bootCount() async => 2;
-
-  @override
-  Future<List<String>> localDnsServers() async => ['192.0.2.53'];
-
-  @override
-  Future<void> connect(
-    String config, {
-    required bool killSwitch,
-    bool excludeRuApps = false,
-    bool debug = false,
-  }) async {
-    connectCalls++;
-    if (failConnect) throw StateError('connection failed');
-    await super.connect(
-      config,
-      killSwitch: killSwitch,
-      excludeRuApps: excludeRuApps,
-      debug: debug,
-    );
+  Future<void> recordConnectionTimings(List<Map<String, Object>> timings) async {
+    connectionTimings = timings;
   }
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('locks VPN toggle during connection preparation', () async {
+  test('locks VPN toggle during connection preparation and records timings', () async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
     final vpn = _DeferredVpnController();
@@ -88,46 +66,10 @@ void main() {
     expect(await firstToggle, isNull);
     expect(vpn.connectCalls, 1);
     expect(app.vpnOperationInProgress, isFalse);
-  });
-
-  test('keeps boot fallback retryable after a failed connection', () async {
-    SharedPreferences.setMockInitialValues({
-      'autostart': true,
-      'lastBootCount': 1,
-    });
-    final prefs = await SharedPreferences.getInstance();
-    final secrets = PrefsSecretStore(prefs);
-    await secrets.write(
-      'profile',
-      'mierus://user:password@192.0.2.1?port=443&protocol=TCP',
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      vpn.connectionTimings?.map((timing) => timing['stage']),
+      ['server_dns', 'local_dns', 'config_build', 'vpn_service_start'],
     );
-    final vpn = _BootVpnController();
-    final app = AppState(prefs, vpn, secrets, _NoUpdates());
-    addTearDown(app.dispose);
-
-    await app.load();
-    await Future<void>.delayed(const Duration(milliseconds: 900));
-
-    expect(vpn.connectCalls, 1);
-    expect(prefs.getInt('lastBootCount'), 1);
-  });
-
-  test('records an initial boot-count baseline without reconnecting', () async {
-    SharedPreferences.setMockInitialValues({'autostart': true});
-    final prefs = await SharedPreferences.getInstance();
-    final secrets = PrefsSecretStore(prefs);
-    await secrets.write(
-      'profile',
-      'mierus://user:password@192.0.2.1?port=443&protocol=TCP',
-    );
-    final vpn = _BootVpnController();
-    final app = AppState(prefs, vpn, secrets, _NoUpdates());
-    addTearDown(app.dispose);
-
-    await app.load();
-    await Future<void>.delayed(const Duration(milliseconds: 20));
-
-    expect(vpn.connectCalls, 0);
-    expect(prefs.getInt('lastBootCount'), 2);
   });
 }

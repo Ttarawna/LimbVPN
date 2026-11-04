@@ -10,11 +10,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Автозапуск VPN после перезагрузки телефона (если включён и разрешение VPN выдано). */
-class BootReceiver : BroadcastReceiver() {
+/** Возобновляет VPN после установки обновления приложения. */
+class PackageUpdateReceiver : BroadcastReceiver() {
 
     companion object {
-        /** Короткий журнал автозапуска: видно, дошла ли система до нас после загрузки. */
+        /** Локальный журнал диагностики; не содержит адресов и параметров профиля. */
         fun log(ctx: Context, text: String) {
             try {
                 val f = File(ctx.filesDir, "boot.log")
@@ -51,34 +51,6 @@ class BootReceiver : BroadcastReceiver() {
                 }
             }
             return
-        }
-        if (action != Intent.ACTION_BOOT_COMPLETED &&
-            action != Intent.ACTION_USER_UNLOCKED &&
-            action != "android.intent.action.QUICKBOOT_POWERON" &&
-            action != "com.htc.intent.action.QUICKBOOT_POWERON"
-        ) return
-
-        val prefs = context.getSharedPreferences("native", Context.MODE_PRIVATE)
-        val auto = prefs.getBoolean("autostart", false)
-        log(context, "получено событие $action, автозапуск включён: $auto")
-        if (!auto) return
-        if (SecureStore.read(context, "session") == null) {
-            log(context, "нет сохранённого профиля для автозапуска")
-            return
-        }
-        if (VpnService.prepare(context) != null) {
-            log(context, "нет разрешения VPN, подключитесь вручную один раз")
-            return
-        }
-        try {
-            ContextCompat.startForegroundService(
-                context,
-                Intent(context, QuietVpnService::class.java)
-                    .setAction(QuietVpnService.ACTION_START_SAVED)
-            )
-            log(context, "запрошен запуск службы VPN")
-        } catch (e: Exception) {
-            log(context, "ошибка запуска службы: " + e.message)
         }
     }
 }

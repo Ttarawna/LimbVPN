@@ -25,6 +25,7 @@ import android.os.Looper
 import android.os.Parcel
 import android.os.ParcelFileDescriptor
 import android.os.Process
+import android.os.SystemClock
 import android.provider.Settings
 import android.service.quicksettings.TileService
 import android.util.AtomicFile
@@ -35,7 +36,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Параметры подключения. Сохраняются в зашифрованном виде для автозапуска. */
+/** Параметры подключения. Сохраняются в зашифрованном виде для восстановления после обновления. */
 data class Session(
     val config: String,
     val excludeRu: Boolean,
@@ -199,7 +200,7 @@ class QuietVpnService : VpnService() {
                     scheduleNetworkRefresh()
                 }
             } catch (e: Exception) {
-                BootReceiver.log(
+                PackageUpdateReceiver.log(
                     this@QuietVpnService,
                     "не удалось проверить DNS после смены сети: " + (e.message ?: e.toString())
                 )
@@ -261,7 +262,7 @@ class QuietVpnService : VpnService() {
             try {
                 startForegroundCompat("Подключаю…")
             } catch (e: Exception) {
-                BootReceiver.log(this, "не удалось запустить foreground-службу: " + (e.message ?: e.toString()))
+                PackageUpdateReceiver.log(this, "не удалось запустить foreground-службу: " + (e.message ?: e.toString()))
                 finish("error:Не удалось запустить службу VPN")
                 return START_NOT_STICKY
             }
@@ -282,12 +283,12 @@ class QuietVpnService : VpnService() {
                     startOnce(s, true)
                 }
             }
-            // Автозапуск, «Всегда включённый VPN» от системы или перезапуск после сбоя
+            // «Всегда включённый VPN» от системы или перезапуск после сбоя
             ACTION_START_SAVED, VpnService.SERVICE_INTERFACE, null -> {
-                BootReceiver.log(this, "служба VPN: запуск с сохранёнными параметрами")
+                PackageUpdateReceiver.log(this, "служба VPN: запуск с сохранёнными параметрами")
                 val s = SecureStore.read(this, "session")?.let { Session.fromJson(it) }
                 if (s == null) {
-                    BootReceiver.log(this, "нет сохранённых параметров подключения")
+                    PackageUpdateReceiver.log(this, "нет сохранённых параметров подключения")
                     startForegroundCompat("Нет сохранённого профиля")
                     finish("error:Нет сохранённого профиля")
                 } else {
@@ -301,6 +302,7 @@ class QuietVpnService : VpnService() {
     private fun startOnce(s: Session, fromUser: Boolean) {
         if (started) return
         started = true
+        val startedAt = SystemClock.elapsedRealtime()
         if (fromUser) {
             try {
                 SecureStore.write(this, "session", s.toJson())
@@ -321,9 +323,11 @@ class QuietVpnService : VpnService() {
                     setState("on")
                     registerPackageReceiver(s)
                     registerNetworkCallback()
+                    logTiming("service_start", startedAt)
                 }
             } catch (t: Throwable) {
                 val msg = t.message ?: t.toString()
+                logTiming("service_start", startedAt)
                 if (!fromUser && s.killSwitch && tun != null && !finishing) {
                     enterBlocked()
                 } else {
@@ -340,6 +344,7 @@ class QuietVpnService : VpnService() {
     // ---------------------------------------------------------------- туннель
 
     private fun buildTunnel(s: Session): ParcelFileDescriptor {
+        val setupStartedAt = SystemClock.elapsedRealtime()
         val home = File(filesDir, "mihomo").apply { mkdirs() }
         val builder = Builder()
             .setSession("Limb VPN")
@@ -361,6 +366,7 @@ class QuietVpnService : VpnService() {
 
         // Российские приложения работают вне VPN: так Android не сообщает им о VPN.
         val excluded = ArrayList<String>()
+        val exclusionScanStartedAt = SystemClock.elapsedRealtime()
         if (s.excludeRu) {
             for (app in RuApps.detect(this)) {
                 try {
@@ -370,25 +376,35 @@ class QuietVpnService : VpnService() {
                 }
             }
         }
+        logTiming("app_exclusion_scan", exclusionScanStartedAt)
         try {
             File(home, "excluded_apps.txt").writeText(excluded.joinToString("\n"))
         } catch (_: Exception) {
         }
 
+        val establishStartedAt = SystemClock.elapsedRealtime()
         val pfd = builder.establish() ?: throw IllegalStateException("Не удалось создать туннель")
+        logTiming("tun_establish", establishStartedAt)
         tun = pfd
         try {
             val lockdown = Build.VERSION.SDK_INT >= 29 && isLockdownEnabled
             File(home, "lockdown").writeText(if (lockdown) "1" else "0")
         } catch (_: Exception) {
         }
+        logTiming("tunnel_setup", setupStartedAt)
         return pfd
     }
 
     // ---------------------------------------------------------------- ядро
 
     private fun startCoreProcess(s: Session, pfd: ParcelFileDescriptor) {
-        val localDns = localDnsServers(this)
+        val coreStartStartedAt = SystemClock.elapsedRealtime()
+        val dnsStartedAt = SystemClock.elapsedRealtime()
+        val localDns = try {
+            localDnsServers(this)
+        } finally {
+            logTiming("local_dns_read", dnsStartedAt)
+        }
         val latch = CountDownLatch(1)
         var binder: IBinder? = null
         val conn = object : ServiceConnection {
@@ -405,8 +421,13 @@ class QuietVpnService : VpnService() {
         if (!bindService(Intent(this, CoreService::class.java), conn, Context.BIND_AUTO_CREATE)) {
             throw IllegalStateException("Не удалось запустить процесс ядра")
         }
-        if (!latch.await(10, TimeUnit.SECONDS)) {
-            throw IllegalStateException("Процесс ядра не ответил")
+        val binderStartedAt = SystemClock.elapsedRealtime()
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw IllegalStateException("Процесс ядра не ответил")
+            }
+        } finally {
+            logTiming("core_binder_wait", binderStartedAt)
         }
         val b = binder ?: throw IllegalStateException("Процесс ядра не ответил")
         core = b
@@ -426,7 +447,15 @@ class QuietVpnService : VpnService() {
         } finally {
             data.recycle()
             reply.recycle()
+            logTiming("core_start", coreStartStartedAt)
         }
+    }
+
+    private fun logTiming(stage: String, startedAt: Long) {
+        PackageUpdateReceiver.log(
+            this,
+            "подключение [$stage]: ${SystemClock.elapsedRealtime() - startedAt} ms"
+        )
     }
 
     /** Процесс ядра завершился. */
@@ -508,7 +537,7 @@ class QuietVpnService : VpnService() {
                 manager.registerDefaultNetworkCallback(networkCallback)
                 networkCallbackRegistered = true
             } catch (e: Exception) {
-                BootReceiver.log(this, "не удалось отслеживать смену сети: " + (e.message ?: e.toString()))
+                PackageUpdateReceiver.log(this, "не удалось отслеживать смену сети: " + (e.message ?: e.toString()))
             }
         }
     }

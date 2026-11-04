@@ -10,7 +10,7 @@ import 'secret_store.dart';
 import 'updater.dart';
 import 'vpn_controller.dart';
 
-enum Flag { killSwitch, adBlock, blockIpv6, autostart, excludeRuApps, debug }
+enum Flag { killSwitch, adBlock, blockIpv6, excludeRuApps, debug }
 
 class AppState extends ChangeNotifier {
   AppState(this._prefs, this.vpn, this._secrets, this._updates) {
@@ -18,7 +18,6 @@ class AppState extends ChangeNotifier {
     killSwitch = _prefs.getBool('killSwitch') ?? true;
     adBlock = _prefs.getBool('adBlock') ?? false;
     blockIpv6 = _prefs.getBool('blockIpv6') ?? true;
-    autostart = _prefs.getBool('autostart') ?? false;
     excludeRuApps = _prefs.getBool('excludeRuApps') ?? true;
     debugMode = _prefs.getBool('debug') ?? false;
   }
@@ -32,7 +31,6 @@ class AppState extends ChangeNotifier {
   bool killSwitch = true;
   bool adBlock = false;
   bool blockIpv6 = true;
-  bool autostart = false;
   bool excludeRuApps = true;
   bool debugMode = false;
   bool vpnOperationInProgress = false;
@@ -48,6 +46,8 @@ class AppState extends ChangeNotifier {
 
   /// Загружает профиль из защищённого хранилища. Вызывается один раз при запуске.
   Future<void> load() async {
+    await _prefs.remove('autostart');
+    await _prefs.remove('lastBootCount');
     String? link;
     try {
       link = await _secrets.read('profile');
@@ -74,9 +74,7 @@ class AppState extends ChangeNotifier {
         } catch (_) {}
       }
     }
-    unawaited(vpn.setAutostart(autostart));
     notifyListeners();
-    unawaited(_autostartFallback());
     _updates.setErrorHandler((m) {
       updateProgress = null;
       notice = 'Не удалось установить обновление: $m';
@@ -130,29 +128,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Запасной путь автозапуска. Некоторые оболочки (например, у Xiaomi) не дают
-  /// приложению запуститься при загрузке телефона. Тогда подключаемся при первом
-  /// открытии приложения после перезагрузки.
-  Future<void> _autostartFallback() async {
-    if (!autostart || profile == null) return;
-    final count = await vpn.bootCount();
-    if (count == null) return;
-    final last = _prefs.getInt('lastBootCount');
-    if (last == null) {
-      await _prefs.setInt('lastBootCount', count);
-      return;
-    }
-    if (last == count) return; // перезагрузки не было
-    await Future<void>.delayed(const Duration(milliseconds: 800));
-    if (vpn.status == VpnStatus.off) {
-      final error = await toggle();
-      if (error != null) return;
-    }
-    if (vpn.status == VpnStatus.on) {
-      await _prefs.setInt('lastBootCount', count);
-    }
-  }
-
   /// Бросает [LinkFormatException], если ссылка не подходит.
   void importLink(String raw) {
     final parsed = MieruProfile.parse(raw);
@@ -180,9 +155,6 @@ class AppState extends ChangeNotifier {
         adBlock = value;
       case Flag.blockIpv6:
         blockIpv6 = value;
-      case Flag.autostart:
-        autostart = value;
-        unawaited(vpn.setAutostart(value));
       case Flag.excludeRuApps:
         excludeRuApps = value;
       case Flag.debug:
@@ -202,13 +174,32 @@ class AppState extends ChangeNotifier {
       return null;
     vpnOperationInProgress = true;
     notifyListeners();
+    List<Map<String, Object>>? timings;
+    String? stage;
+    Stopwatch? stageClock;
+    void finishStage() {
+      timings!.add({
+        'stage': stage!,
+        'elapsed_ms': stageClock!.elapsedMilliseconds,
+      });
+      stageClock
+        ..reset()
+        ..start();
+    }
     try {
       if (st == VpnStatus.on || st == VpnStatus.blocked) {
         await vpn.disconnect();
       } else {
+        timings = [];
+        stage = 'server_dns';
+        stageClock = Stopwatch()..start();
         // Адрес сервера определяем ДО туннеля, чтобы исключить его из туннеля.
         final ips = await _resolve(p.server);
+        finishStage();
+        stage = 'local_dns';
         final localDns = await vpn.localDnsServers();
+        finishStage();
+        stage = 'config_build';
         final config = buildMihomoConfig(
           p,
           serverIps: ips,
@@ -217,6 +208,8 @@ class AppState extends ChangeNotifier {
           blockIpv6: blockIpv6,
           debug: debugMode,
         );
+        finishStage();
+        stage = 'vpn_service_start';
         await vpn.connect(
           config,
           killSwitch: killSwitch,
@@ -232,6 +225,13 @@ class AppState extends ChangeNotifier {
     } finally {
       vpnOperationInProgress = false;
       notifyListeners();
+      if (timings != null) {
+        timings.add({
+          'stage': stage!,
+          'elapsed_ms': stageClock!.elapsedMilliseconds,
+        });
+        unawaited(vpn.recordConnectionTimings(timings));
+      }
     }
   }
 

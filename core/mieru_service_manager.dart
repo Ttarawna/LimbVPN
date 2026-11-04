@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -39,29 +40,7 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
   bool get hasLog => true;
 
   @override
-  bool get hasAutostart => true;
-
-  @override
   bool get hasAppExclusion => true;
-
-  @override
-  Future<int?> bootCount() async {
-    try {
-      final count = await _channel.invokeMethod<int>('bootCount');
-      return count == null || count < 0 ? null : count;
-    } on PlatformException {
-      return null;
-    }
-  }
-
-  @override
-  Future<void> openAutostartSettings() async {
-    try {
-      await _channel.invokeMethod<void>('openAutostartSettings');
-    } on PlatformException {
-      return;
-    }
-  }
 
   @override
   Future<String> readExcludedApps() async =>
@@ -78,6 +57,20 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
       throw StateError('В активной сети не найден локальный DNS-резолвер');
     }
     return servers;
+  }
+
+  @override
+  Future<void> recordConnectionTimings(
+    List<Map<String, Object>> timings,
+  ) async {
+    try {
+      await _channel.invokeMethod<void>(
+        'recordConnectionTimings',
+        jsonEncode(timings),
+      );
+    } on PlatformException catch (error) {
+      debugPrint('Не удалось сохранить замеры подключения: ${error.message}');
+    }
   }
 
   Future<void> refreshStatus() async {
@@ -228,15 +221,6 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
       return null;
     }
     return null;
-  }
-
-  @override
-  Future<void> setAutostart(bool enabled) async {
-    try {
-      await _channel.invokeMethod<void>('setAutostart', {'enabled': enabled});
-    } on PlatformException {
-      return;
-    }
   }
 
   @override

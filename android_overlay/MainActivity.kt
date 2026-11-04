@@ -15,6 +15,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import org.json.JSONArray
 import org.json.JSONObject
 
 class MainActivity : FlutterActivity() {
@@ -109,30 +110,35 @@ class MainActivity : FlutterActivity() {
                 "lockdown" -> result.success(readFile("mihomo/lockdown"))
                 "excludedApps" -> result.success(readFile("mihomo/excluded_apps.txt"))
                 "readLog" -> result.success(buildLogText())
-                "bootCount" -> result.success(
-                    try {
-                        Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT, -1)
-                    } catch (_: Exception) {
-                        -1
+                "recordConnectionTimings" -> {
+                    val json = call.argument<String>("timings")
+                    if (json == null) {
+                        result.error("bad_args", "Нет данных замеров подключения", null)
+                    } else {
+                        try {
+                            val timings = JSONArray(json)
+                            val allowedStages = setOf(
+                                "server_dns",
+                                "local_dns",
+                                "config_build",
+                                "vpn_service_start"
+                            )
+                            for (i in 0 until timings.length()) {
+                                val timing = timings.getJSONObject(i)
+                                val stage = timing.getString("stage")
+                                val elapsed = timing.getLong("elapsed_ms")
+                                require(stage in allowedStages && elapsed >= 0)
+                                PackageUpdateReceiver.log(this, "подключение [$stage]: ${elapsed} ms")
+                            }
+                            result.success(null)
+                        } catch (e: Exception) {
+                            result.error("bad_args", e.message, null)
+                        }
                     }
-                )
-                "openAutostartSettings" -> {
-                    openAutostartSettings()
-                    result.success(null)
                 }
                 "openVpnSettings" -> {
                     startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
                     result.success(null)
-                }
-                "setAutostart" -> {
-                    val saved = getSharedPreferences("native", Context.MODE_PRIVATE).edit()
-                        .putBoolean("autostart", call.argument<Boolean>("enabled") ?: false)
-                        .commit()
-                    if (saved) {
-                        result.success(null)
-                    } else {
-                        result.error("autostart_save_failed", "Не удалось сохранить настройку автозапуска", null)
-                    }
                 }
                 "forgetSession" -> {
                     SecureStore.delete(this, "session")
@@ -249,38 +255,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /** Открывает экран разрешения автозапуска (у Xiaomi и других оболочек он отдельный). */
-    private fun openAutostartSettings() {
-        val candidates = listOf(
-            Intent().setClassName(
-                "com.miui.securitycenter",
-                "com.miui.permcenter.autostart.AutoStartManagementActivity"
-            ),
-            Intent().setClassName(
-                "com.huawei.systemmanager",
-                "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"
-            ),
-            Intent().setClassName(
-                "com.coloros.safecenter",
-                "com.coloros.safecenter.permission.startup.StartupAppListActivity"
-            ),
-            Intent().setClassName(
-                "com.vivo.permissionmanager",
-                "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"
-            )
-        )
-        for (i in candidates) {
-            try {
-                startActivity(i)
-                return
-            } catch (_: Exception) {
-            }
-        }
-        startActivity(
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
-        )
-    }
-
     private fun readFile(path: String): String = try {
         val f = File(filesDir, path)
         if (f.exists()) f.readText() else ""
@@ -290,7 +264,7 @@ class MainActivity : FlutterActivity() {
 
     private fun buildLogText(): String = try {
         val boot = readFile("boot.log").trim()
-        val bootPart = if (boot.isEmpty()) "" else "=== журнал автозапуска ===\n$boot\n\n"
+        val bootPart = if (boot.isEmpty()) "" else "=== журнал приложения ===\n$boot\n\n"
         val file = File(filesDir, "mihomo/core.log")
         if (!file.exists()) {
             bootPart + "Журнал ядра пока пуст"

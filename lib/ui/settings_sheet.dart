@@ -164,14 +164,6 @@ class _SettingsSheetState extends State<SettingsSheet> {
               title: const Text('Блокировать IPv6'),
               subtitle: const Text('Не даёт трафику обойти туннель по IPv6.'),
             ),
-            if (app.vpn.hasAutostart)
-              ListTile(
-                title: const Text('Разрешение на автозапуск в системе'),
-                subtitle: const Text(
-                    'Переключатель автозапуска находится на главном экране. Huawei: для Limb VPN включите ручное управление, автозапуск, вторичный запуск и работу в фоне. На других устройствах разрешите автозапуск. Надёжнее всего включить «Всегда включённый VPN».'),
-                trailing: const Icon(Icons.open_in_new),
-                onTap: app.vpn.openAutostartSettings,
-              ),
             if (app.vpn.hasAppExclusion) ...[
               SwitchListTile(
                 value: app.excludeRuApps,

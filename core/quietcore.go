@@ -98,6 +98,10 @@ func Start(homeDir string, config string, tunFd int, p Protector, debug bool, lo
 		return errors.New("ядро уже запущено")
 	}
 
+	startedAt := time.Now()
+	defer func() {
+		fmt.Println("=== timing: core_start_total =", time.Since(startedAt).Round(time.Millisecond), "===")
+	}()
 	redirectLogs(filepath.Join(homeDir, "core.log"))
 
 	// Ядро получает копию дескриптора: оригиналом владеет Kotlin и закроет его сам.
@@ -110,7 +114,9 @@ func Start(homeDir string, config string, tunFd int, p Protector, debug bool, lo
 	if localDNS != "" {
 		localDNSServers = strings.Split(localDNS, ",")
 	}
+	configStartedAt := time.Now()
 	cfg, err := patchConfig(config, fd, debug, localDNSServers)
+	fmt.Println("=== timing: core_config_prepare =", time.Since(configStartedAt).Round(time.Millisecond), "===")
 	if err != nil {
 		_ = syscall.Close(fd)
 		return fmt.Errorf("конфиг: %w", err)
@@ -139,18 +145,24 @@ func Start(homeDir string, config string, tunFd int, p Protector, debug bool, lo
 	}
 
 	constant.SetHomeDir(homeDir)
-	if err := hub.Parse(cfg); err != nil {
+	parseStartedAt := time.Now()
+	err = hub.Parse(cfg)
+	fmt.Println("=== timing: mihomo_parse =", time.Since(parseStartedAt).Round(time.Millisecond), "===")
+	if err != nil {
 		_ = syscall.Close(fd)
 		return fmt.Errorf("запуск Mihomo: %w", err)
 	}
 
 	// Mihomo не возвращает ошибку, если туннель не поднялся, а только пишет её в журнал.
 	// Поэтому через полторы секунды проверяем журнал сами.
+	readinessStartedAt := time.Now()
 	time.Sleep(1500 * time.Millisecond)
 	if line := findTunError(filepath.Join(homeDir, "core.log")); line != "" {
+		fmt.Println("=== timing: tun_ready_check =", time.Since(readinessStartedAt).Round(time.Millisecond), "===")
 		executor.Shutdown()
 		return errors.New(line)
 	}
+	fmt.Println("=== timing: tun_ready_check =", time.Since(readinessStartedAt).Round(time.Millisecond), "===")
 
 	running = true
 	fmt.Println("=== quietcore: ядро запущено ===")

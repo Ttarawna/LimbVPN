@@ -2,6 +2,8 @@ package dev.quiet.quiet_vpn
 
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.content.ComponentName
@@ -11,16 +13,37 @@ import androidx.core.content.ContextCompat
 
 class VpnQuickSettingsTile : TileService() {
 
+    private val handler = Handler(Looper.getMainLooper())
+    private var listening = false
+    private var renderedState: String? = null
+
+    private val stateRefresh = object : Runnable {
+        override fun run() {
+            if (!listening) return
+            refreshTile()
+            handler.postDelayed(this, 500)
+        }
+    }
+
     override fun onStartListening() {
         super.onStartListening()
-        updateTile()
+        listening = true
+        refreshTile(force = true)
+        handler.removeCallbacks(stateRefresh)
+        handler.postDelayed(stateRefresh, 500)
+    }
+
+    override fun onStopListening() {
+        listening = false
+        handler.removeCallbacks(stateRefresh)
+        super.onStopListening()
     }
 
     override fun onClick() {
         super.onClick()
         val state = QuietVpnService.readState(this)
         if (state == "connecting" || state == "disconnecting") {
-            updateTile()
+            refreshTile(force = true)
             return
         }
         val shouldStop = state == "on" || state == "blocked"
@@ -34,7 +57,7 @@ class VpnQuickSettingsTile : TileService() {
             return
         }
         if (!shouldStop && SecureStore.read(this, "session") == null) {
-            BootReceiver.log(this, "плитка VPN: нет сохранённого профиля")
+            PackageUpdateReceiver.log(this, "плитка VPN: нет сохранённого профиля")
             startActivityAndCollapse(
                 Intent(this, MainActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -50,15 +73,17 @@ class VpnQuickSettingsTile : TileService() {
                     else QuietVpnService.ACTION_START_SAVED
                 )
             if (shouldStop) startService(intent) else ContextCompat.startForegroundService(this, intent)
-            updateTile()
+            refreshTile(force = true)
         } catch (e: Exception) {
-            BootReceiver.log(this, "плитка VPN: " + (e.message ?: e.toString()))
+            PackageUpdateReceiver.log(this, "плитка VPN: " + (e.message ?: e.toString()))
             Toast.makeText(this, "Не удалось изменить состояние VPN", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun updateTile() {
+    private fun refreshTile(force: Boolean = false) {
         val state = QuietVpnService.readState(this)
+        if (!force && state == renderedState) return
+        renderedState = state
         val active = state == "on" || state == "blocked" ||
             state == "connecting" || state == "disconnecting"
         qsTile?.apply {
