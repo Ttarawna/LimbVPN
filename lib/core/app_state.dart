@@ -35,6 +35,7 @@ class AppState extends ChangeNotifier {
   bool autostart = false;
   bool excludeRuApps = true;
   bool debugMode = false;
+  bool vpnOperationInProgress = false;
 
   /// Доступное обновление (null, если нет) и ход загрузки в процентах.
   UpdateInfo? update;
@@ -184,10 +185,14 @@ class AppState extends ChangeNotifier {
 
   /// Возвращает текст ошибки для показа пользователю или null, если всё прошло.
   Future<String?> toggle() async {
+    if (vpnOperationInProgress) return null;
     final p = profile;
     if (p == null) return 'Сначала добавьте профиль';
     final st = vpn.status;
-    if (st == VpnStatus.connecting || st == VpnStatus.disconnecting) return null;
+    if (st == VpnStatus.connecting || st == VpnStatus.disconnecting)
+      return null;
+    vpnOperationInProgress = true;
+    notifyListeners();
     try {
       if (st == VpnStatus.on || st == VpnStatus.blocked) {
         await vpn.disconnect();
@@ -203,15 +208,22 @@ class AppState extends ChangeNotifier {
           blockIpv6: blockIpv6,
           debug: debugMode,
         );
-        await vpn.connect(config,
-            killSwitch: killSwitch, excludeRuApps: excludeRuApps, debug: debugMode);
+        await vpn.connect(
+          config,
+          killSwitch: killSwitch,
+          excludeRuApps: excludeRuApps,
+          debug: debugMode,
+        );
       }
+      return null;
     } on SocketException {
       return 'Не удалось определить адрес сервера. Проверьте интернет.';
     } catch (e) {
       return 'Не удалось подключиться: $e';
+    } finally {
+      vpnOperationInProgress = false;
+      notifyListeners();
     }
-    return null;
   }
 
   Future<List<String>> _resolve(String host) async {

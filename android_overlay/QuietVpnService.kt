@@ -90,6 +90,7 @@ class QuietVpnService : VpnService() {
             val storedState = parts.firstOrNull() ?: "off"
             val pid = parts.getOrNull(1)?.toIntOrNull()
             val savedBootCount = parts.getOrNull(3)?.toIntOrNull()
+            val storedRevision = parts.getOrNull(4)?.toLongOrNull() ?: 0L
             val currentBootCount = try {
                 Settings.Global.getInt(ctx.contentResolver, Settings.Global.BOOT_COUNT, -1)
             } catch (_: Exception) {
@@ -110,15 +111,12 @@ class QuietVpnService : VpnService() {
             }
             val sameBoot = currentBootCount < 0 || savedBootCount == null ||
                 savedBootCount < 0 || savedBootCount == currentBootCount
-            val state = if (storedState in listOf("on", "connecting", "blocked") &&
+            val staleActiveState = storedState in listOf("on", "connecting", "blocked") &&
                 (!serviceAlive || !sameBoot)
-            ) {
-                "off"
-            } else {
-                storedState
-            }
+            val state = if (staleActiveState) "off" else storedState
+            val revision = storedRevision + if (staleActiveState) 1L else 0L
             val since = if (state == "on") parts.getOrNull(2)?.toLongOrNull() else null
-            return mapOf("state" to state, "since" to since)
+            return mapOf("state" to state, "since" to since, "revision" to revision)
         }
 
         fun readState(ctx: Context): String = readStatus(ctx)["state"] as? String ?: "off"
@@ -153,6 +151,7 @@ class QuietVpnService : VpnService() {
 
     @Volatile
     private var connectedSinceMillis = 0L
+    private var stateRevision = 0L
 
     @Volatile
     private var rebuilding = false
@@ -667,7 +666,17 @@ class QuietVpnService : VpnService() {
                     connectedSinceMillis = 0L
             }
             try {
-                val atomicFile = AtomicFile(File(filesDir, "vpn_state"))
+                val stateFile = File(filesDir, "vpn_state")
+                val atomicFile = AtomicFile(stateFile)
+                val storedRevision = try {
+                    atomicFile.openRead().bufferedReader().use { reader ->
+                        reader.readText().split("|").getOrNull(4)?.toLongOrNull() ?: 0L
+                    }
+                } catch (_: Exception) {
+                    0L
+                }
+                // Leave odd revisions for readStatus's synthetic "off" state.
+                stateRevision = maxOf(stateRevision, storedRevision) + 2
                 val output = atomicFile.startWrite()
                 try {
                     val bootCount = try {
@@ -675,7 +684,10 @@ class QuietVpnService : VpnService() {
                     } catch (_: Exception) {
                         -1
                     }
-                    output.write("$state|${Process.myPid()}|$connectedSinceMillis|$bootCount".toByteArray())
+                    output.write(
+                        "$state|${Process.myPid()}|$connectedSinceMillis|$bootCount|$stateRevision"
+                            .toByteArray()
+                    )
                     atomicFile.finishWrite(output)
                 } catch (e: Exception) {
                     atomicFile.failWrite(output)
@@ -683,7 +695,13 @@ class QuietVpnService : VpnService() {
                 }
             } catch (_: Exception) {
             }
-            sendBroadcast(Intent(ACTION_STATE).setPackage(packageName).putExtra("state", state))
+            sendBroadcast(
+                Intent(ACTION_STATE)
+                    .setPackage(packageName)
+                    .putExtra("state", state)
+                    .putExtra("since", connectedSinceMillis)
+                    .putExtra("revision", stateRevision)
+            )
             try {
                 TileService.requestListeningState(
                     this,

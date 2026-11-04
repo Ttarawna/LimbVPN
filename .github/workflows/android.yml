@@ -101,7 +101,7 @@ jobs:
         run: |
           set -e
           flutter pub get
-          flutter test test/core_test.dart test/updater_test.dart test/vpn_service_manager_test.dart
+          flutter test test/core_test.dart test/updater_test.dart test/vpn_service_manager_test.dart test/app_state_test.dart test/home_page_test.dart
           flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}
 
       - name: Подпись APK

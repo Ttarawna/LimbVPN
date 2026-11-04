@@ -30,7 +30,10 @@ class MainActivity : FlutterActivity() {
     // Служба работает в другом процессе и сообщает состояние широковещательными сообщениями.
     private val stateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            intent?.getStringExtra("state")?.let { onServiceState(it) }
+            val state = intent?.getStringExtra("state") ?: return
+            val revision = intent.getLongExtra("revision", -1L)
+            val since = intent.getLongExtra("since", 0L).takeIf { it > 0L }
+            onServiceState(state, revision, since)
         }
     }
 
@@ -299,8 +302,11 @@ class MainActivity : FlutterActivity() {
         "Не удалось прочитать журнал: " + e.message
     }
 
-    private fun onServiceState(state: String) {
-        channel?.invokeMethod("status", state)
+    private fun onServiceState(state: String, revision: Long, since: Long?) {
+        channel?.invokeMethod(
+            "status",
+            mapOf("state" to state, "revision" to revision, "since" to since)
+        )
         if (state == "on") {
             pendingStart?.success(null)
             pendingStart = null

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quiet_vpn/core/app_state.dart';
@@ -30,8 +32,48 @@ class _UpdateService implements UpdateService {
   void setErrorHandler(void Function(String message) handler) {}
 }
 
+class _PreparingVpnController extends FakeVpnController {
+  final dnsServers = Completer<List<String>>();
+
+  @override
+  Future<List<String>> localDnsServers() => dnsServers.future;
+
+  @override
+  Future<void> connect(
+    String config, {
+    required bool killSwitch,
+    bool excludeRuApps = false,
+    bool debug = false,
+  }) async {}
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('shows connecting while DNS preparation is pending', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final vpn = _PreparingVpnController();
+    final app = AppState(
+      prefs,
+      vpn,
+      PrefsSecretStore(prefs),
+      _UpdateService(),
+    );
+    addTearDown(app.dispose);
+    app.importLink('mierus://user:pass@192.0.2.1?port=443&protocol=TCP');
+
+    await tester.pumpWidget(MaterialApp(home: HomePage(app: app)));
+    final connection = app.toggle();
+    await tester.pump();
+    expect(find.text('Подключаю…'), findsOneWidget);
+
+    vpn.dnsServers.complete(['192.0.2.53']);
+    await connection;
+    await tester.pump();
+  });
 
   testWidgets('home screen checks for and installs app updates', (
     tester,

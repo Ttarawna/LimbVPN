@@ -238,7 +238,11 @@ class _HomePageState extends State<HomePage> {
     return ListenableBuilder(
       listenable: widget.app,
       builder: (context, _) {
-        final status = widget.app.vpn.status;
+        final vpnStatus = widget.app.vpn.status;
+        final status = widget.app.vpnOperationInProgress &&
+                vpnStatus == VpnStatus.off
+            ? VpnStatus.connecting
+            : vpnStatus;
         final on = status == VpnStatus.on;
         final c = _Palette.of(on, brightness);
         return AnimatedContainer(

@@ -21,6 +21,7 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
   VpnStatus _status = VpnStatus.off;
   DateTime? _since;
   int _statusRevision = 0;
+  int _serviceRevision = -1;
   Timer? _statusSyncTimer;
 
   @override
@@ -87,11 +88,13 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
       );
       if (details == null || revision != _statusRevision) return;
       final state = details['state'];
+      final serviceRevision = details['revision'];
       final sinceMillis = details['since'];
+      if (state is! String || serviceRevision is! int) return;
       final since = sinceMillis is int
           ? DateTime.fromMillisecondsSinceEpoch(sinceMillis)
           : null;
-      _applyState(state, since: since);
+      _applyServiceState(state, serviceRevision, since: since);
     } on PlatformException {
       return;
     }
@@ -117,10 +120,24 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
   }
 
   Future<dynamic> _onCall(MethodCall call) async {
-    if (call.method != 'status' || call.arguments is! String) return;
+    if (call.method != 'status' || call.arguments is! Map) return;
 
+    final details = call.arguments as Map;
+    final state = details['state'];
+    final serviceRevision = details['revision'];
+    final sinceMillis = details['since'];
+    if (state is! String || serviceRevision is! int) return;
     _statusRevision++;
-    _applyState(call.arguments as String);
+    final since = sinceMillis is int
+        ? DateTime.fromMillisecondsSinceEpoch(sinceMillis)
+        : null;
+    _applyServiceState(state, serviceRevision, since: since);
+  }
+
+  void _applyServiceState(String state, int revision, {DateTime? since}) {
+    if (revision <= _serviceRevision) return;
+    _serviceRevision = revision;
+    _applyState(state, since: since);
   }
 
   void _applyState(String? state, {DateTime? since}) {
@@ -170,12 +187,14 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
       } on PlatformException {
         // Notification permission is optional for establishing a VPN.
       }
-      await _channel.invokeMethod<void>('startVpn', {
-        'config': config,
-        'excludeRu': excludeRuApps,
-        'debug': debug,
-        'killSwitch': killSwitch,
-      }).timeout(const Duration(seconds: 30));
+      await _channel
+          .invokeMethod<void>('startVpn', {
+            'config': config,
+            'excludeRu': excludeRuApps,
+            'debug': debug,
+            'killSwitch': killSwitch,
+          })
+          .timeout(const Duration(seconds: 30));
     } on TimeoutException {
       try {
         await _channel.invokeMethod<void>('stopVpn');
@@ -214,10 +233,7 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
   @override
   Future<void> setAutostart(bool enabled) async {
     try {
-      await _channel.invokeMethod<void>(
-        'setAutostart',
-        {'enabled': enabled},
-      );
+      await _channel.invokeMethod<void>('setAutostart', {'enabled': enabled});
     } on PlatformException {
       return;
     }
