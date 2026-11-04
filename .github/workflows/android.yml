@@ -121,9 +121,56 @@ jobs:
         run: |
           set -e
           VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//')
+          TAG="v$VERSION"
           APK="limb-vpn-$VERSION.apk"
           cp build/app/outputs/flutter-apk/app-release.apk "$APK"
-          gh release delete "v$VERSION" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "v$VERSION" "$APK" \
-            --title "Limb VPN $VERSION" \
-            --notes "Версия $VERSION (сборка ${{ github.run_number }})."
+
+          release_exists() {
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$TAG" --silent
+          }
+
+          for attempt in $(seq 1 10); do
+            if release_exists; then
+              break
+            fi
+            gh release create "$TAG" \
+              --title "Limb VPN $VERSION" \
+              --notes "Версия $VERSION (сборка ${{ github.run_number }})." && break || true
+            sleep $((attempt * 5))
+          done
+
+          RELEASE_ID=""
+          for attempt in $(seq 1 10); do
+            if RELEASE_ID=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$TAG" --jq .id); then
+              break
+            fi
+            sleep $((attempt * 5))
+          done
+          if [ -z "$RELEASE_ID" ]; then
+            echo "::error::Не удалось получить релиз $TAG"
+            exit 1
+          fi
+
+          for attempt in $(seq 1 10); do
+            if ASSET=$(gh api "repos/${GITHUB_REPOSITORY}/releases/$RELEASE_ID" \
+              --jq ".assets[] | select(.name == \"$APK\") | .name") &&
+              [ "$ASSET" = "$APK" ]; then
+              echo "Релиз $TAG уже содержит $APK"
+              exit 0
+            fi
+            if gh release upload "$TAG" "$APK"; then
+              break
+            fi
+            sleep $((attempt * 5))
+          done
+
+          for attempt in $(seq 1 10); do
+            if ASSET=$(gh api "repos/${GITHUB_REPOSITORY}/releases/$RELEASE_ID" \
+              --jq ".assets[] | select(.name == \"$APK\") | .name") &&
+              [ "$ASSET" = "$APK" ]; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "::error::Не удалось загрузить $APK в релиз $TAG"
+          exit 1
