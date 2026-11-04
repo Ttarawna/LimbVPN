@@ -12,6 +12,11 @@ class _LoggedVpnController extends FakeVpnController {
   bool get hasLog => true;
 }
 
+class _AppExclusionVpnController extends _LoggedVpnController {
+  @override
+  bool get hasAppExclusion => true;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -45,5 +50,32 @@ void main() {
     expect(find.textContaining('DNS сервера: 17 мс'), findsOneWidget);
     expect(find.textContaining('Запуск VPN: 1234 мс'), findsOneWidget);
     expect(find.textContaining('Всего: 1251 мс'), findsOneWidget);
+  });
+
+  testWidgets('does not show the app exclusion list in advanced settings', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final app = AppState(
+      prefs,
+      _AppExclusionVpnController(),
+      PrefsSecretStore(prefs),
+      NoUpdateService(),
+    );
+    addTearDown(app.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: SettingsSheet(app: app)),
+      ),
+    );
+
+    await tester.scrollUntilVisible(
+      find.text('Выбранные приложения без VPN'),
+      300,
+    );
+    expect(find.text('Какие приложения без VPN'), findsNothing);
+    expect(find.text('Выбранные приложения без VPN'), findsOneWidget);
   });
 }

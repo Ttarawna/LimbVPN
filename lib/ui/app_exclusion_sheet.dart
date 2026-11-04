@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/vpn_controller.dart';
 
@@ -47,7 +48,9 @@ class _AppExclusionSheetState extends State<AppExclusionSheet> {
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
-        setState(() => _error = 'Не удалось сохранить выбор: $e');
+        final message =
+            e is PlatformException ? e.message ?? e.code : e.toString();
+        setState(() => _error = 'Не удалось сохранить выбор: $message');
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -85,7 +88,7 @@ class _AppExclusionSheetState extends State<AppExclusionSheet> {
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               child: Text(
-                'Отмеченные приложения подключаются напрямую и не используют VPN или его DNS-защиту. Каталог предлагает известные точные package ID; список можно исправить вручную. Изменения применятся при следующем подключении.',
+                'Отмеченные приложения подключаются напрямую и не используют VPN или его DNS-защиту. Автоматически отмечаются пакеты ru.* и известные российские приложения. Список можно исправить вручную; изменения применятся при следующем подключении.',
               ),
             ),
             Padding(
@@ -130,7 +133,7 @@ class _AppExclusionSheetState extends State<AppExclusionSheet> {
                               title: Text(app.label),
                               subtitle: Text(
                                 app.inRussianCatalog
-                                    ? 'Каталог Limb VPN · ${app.packageName}'
+                                    ? 'Автодобавление RU · ${app.packageName}'
                                     : app.packageName,
                               ),
                               controlAffinity: ListTileControlAffinity.leading,

@@ -176,7 +176,7 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "saveExcludedApps" -> {
-                    val json = call.argument<String>("packages")
+                    val json = call.arguments as? String
                     if (json == null) {
                         result.error("bad_args", "Нет списка приложений", null)
                     } else {

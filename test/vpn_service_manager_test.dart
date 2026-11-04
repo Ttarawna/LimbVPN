@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -79,6 +80,32 @@ void main() {
     ]);
     expect(result.apps.single.packageName, 'com.vkontakte.android');
     expect(result.apps.single.excluded, isTrue);
+  });
+
+  test('saves app exclusions as a JSON string for Android', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'statusDetails') {
+        return <String, Object?>{
+          'state': 'off',
+          'since': null,
+          'revision': 0,
+        };
+      }
+      expect(call.method, 'saveExcludedApps');
+      expect(call.arguments, isA<String>());
+      expect(jsonDecode(call.arguments as String), ['ru.example.app']);
+      return null;
+    });
+
+    final controller = MieruServiceManager();
+    addTearDown(() {
+      controller.dispose();
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+
+    await controller.saveExcludedApps({'ru.example.app'});
   });
 
   test(

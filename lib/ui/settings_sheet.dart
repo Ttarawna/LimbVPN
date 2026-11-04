@@ -101,34 +101,6 @@ class _SettingsSheetState extends State<SettingsSheet> {
     }
   }
 
-  Future<void> _showExcluded() async {
-    final text = (await app.vpn.readExcludedApps()).trim();
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Приложения без VPN'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: SingleChildScrollView(
-            child: SelectableText(
-              text.isEmpty
-                  ? 'Список появится после подключения. Приложения определяются при каждом подключении.'
-                  : text,
-              style: const TextStyle(fontSize: 13),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Закрыть'),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -216,11 +188,6 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 subtitle: const Text(
                   'Применяется к приложениям, отмеченным в списке на главном экране. Их трафик, включая DNS, идёт напрямую.',
                 ),
-              ),
-              ListTile(
-                title: const Text('Какие приложения без VPN'),
-                trailing: const Icon(Icons.list_alt_outlined),
-                onTap: _showExcluded,
               ),
             ],
             if (app.vpn.hasLog) ...[
