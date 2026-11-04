@@ -6,10 +6,11 @@ import android.content.pm.PackageManager
 import android.util.AtomicFile
 import java.io.File
 import java.io.FileNotFoundException
+import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Russian-region suggestions use exact package IDs; other apps are left to user choice. */
+/** Russian-region suggestions match known package IDs and app names. */
 object RuApps {
 
     data class App(
@@ -26,7 +27,7 @@ object RuApps {
     )
 
     private const val INVENTORY_FILE = "ru_apps.json"
-    private const val CATALOG_VERSION = 2
+    private const val CATALOG_VERSION = 4
 
     private val russianCatalog = setOf(
         "com.idamob.tinkoff.android",
@@ -36,6 +37,203 @@ object RuApps {
         "ru.rostel",
         "ru.vk.store"
     )
+
+    private val nonWordCharacters = Regex("[^\\p{L}\\p{N}]+")
+    private val russianAppNames = setOf(
+        // Government services and public-sector apps.
+        "Государственные сервисы",
+        "госуслуги",
+        "госуслуги дом",
+        "госуслуги авто",
+        "госуслуги культура",
+        "госуслуги решаем вместе",
+        "госключ",
+        "gosuslugi",
+        "gosuslugi dom",
+        "goskey",
+        "fns",
+        "nalog",
+        "fssp",
+        "rosreestr",
+        "sfr",
+        "pfr",
+        "моя москва",
+        "mos ru",
+        "мой налог",
+        "мобильный идентификатор",
+        "фнс",
+        "налоговая",
+        "налоги фнс",
+        "фссп",
+        "росреестр",
+        "мвд россии",
+        "мчс россии",
+        "росгвардия",
+        "сфр",
+        "социальный фонд россии",
+        "пфр",
+        "гис жкх",
+        "госуслуги биометрия",
+        "пушкинская карта",
+        "банк россии",
+        "единая карта петербуржца",
+        // Russian banks and payment services.
+        "сбер",
+        "сбербанк",
+        "сбербанк онлайн",
+        "sber",
+        "альфа банк",
+        "альфа банка",
+        "альфа онлайн",
+        "alfa",
+        "тинькофф",
+        "tinkoff",
+        "т банк",
+        "т банк онлайн",
+        "t bank",
+        "tbank",
+        "втб",
+        "втб онлайн",
+        "vtb",
+        "газпромбанк",
+        "газпромбанк онлайн",
+        "почта банк",
+        "псб",
+        "промсвязьбанк",
+        "совкомбанк",
+        "озон банк",
+        "ozon bank",
+        "яндекс пэй",
+        "yandex pay",
+        "юmoney",
+        "юмани",
+        "мир пэй",
+        "mir pay",
+        // Major Russian brands, marketplaces, and retailers.
+        "wildberries",
+        "вайлдберриз",
+        "wb",
+        "ozon",
+        "озон",
+        "авито",
+        "avito",
+        "яндекс",
+        "yandex",
+        "вконтакте",
+        "вк",
+        "vk",
+        "одноклассники",
+        "ok ru",
+        "mail ru",
+        "почта россии",
+        "российские железные дороги",
+        "ржд",
+        "rzd",
+        "аэрофлот",
+        "победа авиакомпания",
+        "туту",
+        "2гис",
+        "2gis",
+        "ситимобил",
+        "яндекс go",
+        "яндекс такси",
+        "делимобиль",
+        "яндекс лавка",
+        "яндекс еда",
+        "самокат",
+        "куппер",
+        "пятерочка",
+        "перекресток",
+        "магнит",
+        "лента",
+        "x5",
+        "dns shop",
+        // Telecom operators and home internet providers.
+        "мтс",
+        "mts",
+        "билайн",
+        "beeline",
+        "мегафон",
+        "megafon",
+        "tele2",
+        "теле2",
+        "t2",
+        "yota",
+        "йота",
+        "ростелеком",
+        "rostelecom",
+        "дом ru",
+        "домру",
+        "мгтс",
+        "мотив",
+        "сбермобайл",
+        // Transport, delivery, utilities, and other infrastructure.
+        "московский транспорт",
+        "подорожник",
+        "тройка",
+        "московское метро",
+        "яндекс карты",
+        "яндекс навигатор",
+        "яндекс доставка",
+        "яндекс почта",
+        "сдэк",
+        "cdek",
+        "авито доставка",
+        "яндекс аренда",
+        "яндекс недвижимость",
+        "гис жкх",
+        "мособлгаз",
+        "мосэнергосбыт",
+        "жкх",
+        "единый диспетчерский центр",
+        // Smart-home, appliance, camera, and device companion apps.
+        "умный дом",
+        "умный дом сбер",
+        "умный дом мтс",
+        "яндекс дом",
+        "дом с алисой",
+        "mi home",
+        "mihome",
+        "xiaomi home",
+        "huawei ai life",
+        "ai life",
+        "tuya",
+        "honor ai space",
+        "honor smart home",
+        "smartthings",
+        "samsung smartthings",
+        "tuya smart",
+        "smart life",
+        "tapo",
+        "kasa smart",
+        "aqara home",
+        "aqara",
+        "ewelink",
+        "home assistant",
+        "google home",
+        "amazon alexa",
+        "alexa",
+        "apple home",
+        "philips hue",
+        "yeelight",
+        "roborock",
+        "dreamehome",
+        "dreame home",
+        "eufy clean",
+        "imou life",
+        "ezviz",
+        "hik connect",
+        "reolink",
+        "домофон",
+        "видеонаблюдение",
+        "умная камера",
+        "умная розетка",
+        "умная лампа",
+        "умная колонка",
+        "умные устройства",
+        "умный телевизор",
+        "умный свет"
+    ).map(::normalize).toSet()
 
     fun scan(ctx: Context, onProgress: (Int, Int) -> Unit): List<App> {
         onProgress(0, 0)
@@ -49,7 +247,12 @@ object RuApps {
             if (index % 16 == 0 || index == installed.lastIndex) {
                 onProgress(index + 1, installed.size)
             }
-            val catalogMatch = isRussianPackage(info.packageName)
+            val label = try {
+                info.loadLabel(pm).toString().ifBlank { info.packageName }
+            } catch (_: Exception) {
+                info.packageName
+            }
+            val catalogMatch = isRussianApp(info.packageName, label)
             val excluded = if (!previous.scanCompleted) {
                 catalogMatch
             } else if (info.packageName in previousApps) {
@@ -63,11 +266,7 @@ object RuApps {
             }
             App(
                 pkg = info.packageName,
-                label = try {
-                    info.loadLabel(pm).toString().ifBlank { info.packageName }
-                } catch (_: Exception) {
-                    info.packageName
-                },
+                label = label,
                 inRussianCatalog = catalogMatch,
                 excluded = excluded
             )
@@ -147,8 +346,24 @@ object RuApps {
         )
     }
 
-    private fun isRussianPackage(packageName: String): Boolean =
-        packageName in russianCatalog || packageName.startsWith("ru.")
+    private fun isRussianApp(packageName: String, label: String): Boolean {
+        if (packageName in russianCatalog || packageName.startsWith("ru.")) return true
+        val normalizedPackage = " ${normalize(packageName)} "
+        if (normalizedPackage.contains(" ru ") ||
+            normalizedPackage.contains(" russian ")
+        ) {
+            return true
+        }
+        val normalizedLabel = " ${normalize(label)} "
+        return russianAppNames.any { name ->
+            normalizedPackage.contains(" $name ") || normalizedLabel.contains(" $name ")
+        }
+    }
+
+    private fun normalize(value: String): String =
+        value.lowercase(Locale.ROOT)
+            .replace(nonWordCharacters, " ")
+            .trim()
 
     private fun isUserApp(ctx: Context, info: ApplicationInfo): Boolean =
         info.packageName != ctx.packageName &&

@@ -88,7 +88,7 @@ class _AppExclusionSheetState extends State<AppExclusionSheet> {
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               child: Text(
-                'Отмеченные приложения подключаются напрямую и не используют VPN или его DNS-защиту. Автоматически отмечаются пакеты ru.* и известные российские приложения. Список можно исправить вручную; изменения применятся при следующем подключении.',
+                'Отмеченные приложения подключаются напрямую и не используют VPN или его DNS-защиту. Автоматическая отметка использует package ID и названия госуслуг, российских сервисов и брендов, а также популярных приложений умных устройств. Список можно исправить вручную; изменения применятся при следующем подключении.',
               ),
             ),
             Padding(
@@ -133,7 +133,7 @@ class _AppExclusionSheetState extends State<AppExclusionSheet> {
                               title: Text(app.label),
                               subtitle: Text(
                                 app.inRussianCatalog
-                                    ? 'Автодобавление RU · ${app.packageName}'
+                                    ? 'Автоотмечено · ${app.packageName}'
                                     : app.packageName,
                               ),
                               controlAffinity: ListTileControlAffinity.leading,
