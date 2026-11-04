@@ -140,12 +140,18 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 trailing: const Icon(Icons.open_in_new),
                 onTap: app.vpn.openSystemVpnSettings,
               ),
+            const ListTile(
+              title: Text('Раздельный DNS RU / VPN'),
+              subtitle: Text(
+                  'Российские домены разрешаются локальным DNS активной сети, остальные — через удалённый DoH в VPN. Без подмены DNS при ошибке; исключённые приложения работают напрямую.'),
+              trailing: Icon(Icons.check_circle_outline),
+            ),
             SwitchListTile(
-              value: app.dnsProtection,
-              onChanged: (v) => app.setFlag(Flag.dnsProtection, v),
-              title: const Text('Защита от утечек DNS'),
+              value: app.adBlock,
+              onChanged: (v) => app.setFlag(Flag.adBlock, v),
+              title: const Text('Блокировка рекламы'),
               subtitle: const Text(
-                  'Российские домены разрешаются через DNS провайдера, остальные только внутри туннеля.'),
+                  'Включится при следующем подключении и заблокирует известные рекламные домены. Исключённые из VPN приложения не фильтруются.'),
             ),
             SwitchListTile(
               value: app.blockIpv6,

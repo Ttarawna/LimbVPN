@@ -90,7 +90,7 @@ func protectFd(p Protector, f uintptr) bool {
 func Version() string { return constant.Version }
 
 // Start запускает ядро. tunFd — дескриптор туннеля от VpnService.
-func Start(homeDir string, config string, tunFd int, p Protector, debug bool) error {
+func Start(homeDir string, config string, tunFd int, p Protector, debug bool, localDNS []string) error {
 	mu.Lock()
 	defer mu.Unlock()
 	if running {
@@ -105,7 +105,7 @@ func Start(homeDir string, config string, tunFd int, p Protector, debug bool) er
 		return fmt.Errorf("dup tun fd: %w", err)
 	}
 
-	cfg, err := patchConfig(config, fd, debug)
+	cfg, err := patchConfig(config, fd, debug, localDNS)
 	if err != nil {
 		_ = syscall.Close(fd)
 		return fmt.Errorf("конфиг: %w", err)
@@ -214,7 +214,7 @@ func Stop() {
 
 // patchConfig подгоняет общий конфиг под Android: маршруты задаёт система (VpnService),
 // а туннель приходит готовым дескриптором.
-func patchConfig(raw string, fd int, debug bool) ([]byte, error) {
+func patchConfig(raw string, fd int, debug bool, localDNS []string) ([]byte, error) {
 	var m map[string]any
 	if err := yaml.Unmarshal([]byte(raw), &m); err != nil {
 		return nil, err
@@ -225,6 +225,25 @@ func patchConfig(raw string, fd int, debug bool) ([]byte, error) {
 	tun, _ := m["tun"].(map[string]any)
 	if tun == nil {
 		tun = map[string]any{}
+	}
+	serverIPs := make([]string, 0)
+	if raw, ok := tun["route-exclude-address"].([]any); ok {
+		ipv6, _ := m["ipv6"].(bool)
+		for _, value := range raw {
+			_, network, err := net.ParseCIDR(fmt.Sprint(value))
+			if err != nil {
+				continue
+			}
+			ones, bits := network.Mask.Size()
+			if ones != bits {
+				continue
+			}
+			ip := network.IP.String()
+			if !ipv6 && strings.Contains(ip, ":") {
+				continue
+			}
+			serverIPs = append(serverIPs, ip)
+		}
 	}
 	for _, k := range []string{"route-exclude-address", "route-address", "interface-name"} {
 		delete(tun, k)
@@ -244,12 +263,56 @@ func patchConfig(raw string, fd int, debug bool) ([]byte, error) {
 	tun["dns-hijack"] = []string{"any:53"}
 	tun["mtu"] = 9000
 	m["tun"] = tun
+	if err := secureDNS(m, localDNS); err != nil {
+		return nil, err
+	}
 	// Локальный DNS ядра нужен для самопроверки (напрямую его опрашивает только мы).
 	// Локальный порт DNS открываем только в режиме диагностики: его могут обнаружить.
 	if dns, ok := m["dns"].(map[string]any); ok && debug {
 		dns["listen"] = "127.0.0.1:1053"
 	}
+	if proxies, ok := m["proxies"].([]any); ok {
+		for _, value := range proxies {
+			proxy, ok := value.(map[string]any)
+			if !ok {
+				continue
+			}
+			server := fmt.Sprint(proxy["server"])
+			if net.ParseIP(server) == nil {
+				if len(serverIPs) == 0 {
+					return nil, errors.New("нет IP VPN-сервера; DNS-fallback запрещён")
+				}
+				proxy["server"] = serverIPs[0]
+			}
+		}
+	}
 	return yaml.Marshal(m)
+}
+
+func secureDNS(config map[string]any, localDNS []string) error {
+	if len(localDNS) == 0 {
+		return errors.New("локальный DNS недоступен; DNS-fallback запрещён")
+	}
+	for _, server := range localDNS {
+		if net.ParseIP(server) == nil {
+			return fmt.Errorf("некорректный адрес локального DNS: %q", server)
+		}
+	}
+	dns, ok := config["dns"].(map[string]any)
+	if !ok {
+		dns = make(map[string]any)
+		config["dns"] = dns
+	}
+	dns["enable"] = true
+	dns["nameserver"] = []string{"https://1.1.1.1/dns-query#mieru"}
+	policy := make(map[string]any)
+	for _, domain := range []string{"+.ru", "+.su", "+.xn--p1ai", "geosite:category-ru"} {
+		policy[domain] = localDNS
+	}
+	dns["nameserver-policy"] = policy
+	delete(dns, "default-nameserver")
+	delete(dns, "proxy-server-nameserver")
+	return nil
 }
 
 // dnsTest спрашивает DNS самого ядра: российский домен должен получить настоящий IP,

@@ -10,13 +10,13 @@ import 'secret_store.dart';
 import 'updater.dart';
 import 'vpn_controller.dart';
 
-enum Flag { killSwitch, dnsProtection, blockIpv6, autostart, excludeRuApps, debug }
+enum Flag { killSwitch, adBlock, blockIpv6, autostart, excludeRuApps, debug }
 
 class AppState extends ChangeNotifier {
   AppState(this._prefs, this.vpn, this._secrets, this._updates) {
     vpn.addListener(notifyListeners);
     killSwitch = _prefs.getBool('killSwitch') ?? true;
-    dnsProtection = _prefs.getBool('dnsProtection') ?? true;
+    adBlock = _prefs.getBool('adBlock') ?? false;
     blockIpv6 = _prefs.getBool('blockIpv6') ?? true;
     autostart = _prefs.getBool('autostart') ?? false;
     excludeRuApps = _prefs.getBool('excludeRuApps') ?? true;
@@ -30,7 +30,7 @@ class AppState extends ChangeNotifier {
 
   MieruProfile? profile;
   bool killSwitch = true;
-  bool dnsProtection = true;
+  bool adBlock = false;
   bool blockIpv6 = true;
   bool autostart = false;
   bool excludeRuApps = true;
@@ -166,8 +166,8 @@ class AppState extends ChangeNotifier {
     switch (flag) {
       case Flag.killSwitch:
         killSwitch = value;
-      case Flag.dnsProtection:
-        dnsProtection = value;
+      case Flag.adBlock:
+        adBlock = value;
       case Flag.blockIpv6:
         blockIpv6 = value;
       case Flag.autostart:
@@ -194,10 +194,12 @@ class AppState extends ChangeNotifier {
       } else {
         // Адрес сервера определяем ДО туннеля, чтобы исключить его из туннеля.
         final ips = await _resolve(p.server);
+        final localDns = await vpn.localDnsServers();
         final config = buildMihomoConfig(
           p,
           serverIps: ips,
-          dnsProtection: dnsProtection,
+          localDnsServers: localDns,
+          adBlock: adBlock,
           blockIpv6: blockIpv6,
           debug: debugMode,
         );

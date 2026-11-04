@@ -70,6 +70,15 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
   Future<String> readLog() async =>
       await _channel.invokeMethod<String>('readLog') ?? '';
 
+  @override
+  Future<List<String>> localDnsServers() async {
+    final servers = await _channel.invokeListMethod<String>('localDnsServers');
+    if (servers == null || servers.isEmpty) {
+      throw StateError('В активной сети не найден локальный DNS-резолвер');
+    }
+    return servers;
+  }
+
   Future<void> refreshStatus() async {
     final revision = ++_statusRevision;
     try {
@@ -168,6 +177,11 @@ class MieruServiceManager extends VpnController with WidgetsBindingObserver {
         'killSwitch': killSwitch,
       }).timeout(const Duration(seconds: 30));
     } on TimeoutException {
+      try {
+        await _channel.invokeMethod<void>('stopVpn');
+      } on PlatformException {
+        // The service may already have stopped while the start request timed out.
+      }
       _set(VpnStatus.off);
       throw 'Служба VPN не ответила вовремя';
     } on PlatformException catch (error) {

@@ -11,6 +11,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.graphics.drawable.Icon
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.VpnService
 import android.os.Binder
 import android.os.Build
@@ -20,12 +22,15 @@ import android.os.Looper
 import android.os.Parcel
 import android.os.ParcelFileDescriptor
 import android.os.Process
+import android.provider.Settings
+import android.service.quicksettings.TileService
 import android.util.AtomicFile
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Параметры подключения. Сохраняются в зашифрованном виде для автозапуска. */
 data class Session(
@@ -82,7 +87,29 @@ class QuietVpnService : VpnService() {
             } catch (_: Exception) {
                 emptyList()
             }
-            val state = parts.firstOrNull() ?: "off"
+            val storedState = parts.firstOrNull() ?: "off"
+            val pid = parts.getOrNull(1)?.toIntOrNull()
+            val savedBootCount = parts.getOrNull(3)?.toIntOrNull()
+            val currentBootCount = try {
+                Settings.Global.getInt(ctx.contentResolver, Settings.Global.BOOT_COUNT, -1)
+            } catch (_: Exception) {
+                -1
+            }
+            val processName = try {
+                pid?.let { File("/proc/$it/cmdline").readBytes().decodeToString().substringBefore('\u0000') }
+            } catch (_: Exception) {
+                null
+            }
+            val serviceAlive = processName == "${ctx.packageName}:vpn"
+            val sameBoot = currentBootCount < 0 ||
+                (savedBootCount != null && savedBootCount == currentBootCount)
+            val state = if (storedState in listOf("on", "connecting", "blocked") &&
+                (!serviceAlive || !sameBoot)
+            ) {
+                "off"
+            } else {
+                storedState
+            }
             val since = if (state == "on") parts.getOrNull(2)?.toLongOrNull() else null
             return mapOf("state" to state, "since" to since)
         }
@@ -91,6 +118,13 @@ class QuietVpnService : VpnService() {
     }
 
     private val handler = Handler(Looper.getMainLooper())
+    private val stateLock = Any()
+    @Volatile
+    private var networkCallbackRegistered = false
+    @Volatile
+    private var underlyingNetwork: Network? = null
+    @Volatile
+    private var networkLost = false
     private var tun: ParcelFileDescriptor? = null
     private var session: Session? = null
     private var core: IBinder? = null
@@ -106,6 +140,9 @@ class QuietVpnService : VpnService() {
     private var started = false
 
     private var retryDelayMs = 3000L
+    private val retryScheduled = AtomicBoolean(false)
+    private val retrying = AtomicBoolean(false)
+    private val rebuildInProgress = AtomicBoolean(false)
 
     @Volatile
     private var connectedSinceMillis = 0L
@@ -134,6 +171,26 @@ class QuietVpnService : VpnService() {
     }
 
     private val rebuildRunnable = Runnable { rebuildTunnel() }
+    private val networkRefreshRunnable = Runnable { refreshCoreAfterNetworkChange() }
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            val changed = networkLost || (underlyingNetwork != null && underlyingNetwork != network)
+            underlyingNetwork = network
+            networkLost = false
+            if (changed) {
+                handler.removeCallbacks(networkRefreshRunnable)
+                handler.postDelayed(networkRefreshRunnable, 1500)
+            }
+        }
+
+        override fun onLost(network: Network) {
+            if (underlyingNetwork == network) {
+                underlyingNetwork = null
+                networkLost = true
+            }
+        }
+    }
 
     // Принимает от ядра запросы «защитить сокет», чтобы он шёл мимо туннеля.
     private val protectBinder = object : Binder() {
@@ -223,13 +280,19 @@ class QuietVpnService : VpnService() {
         }
         session = s
         setState("connecting")
+        handler.postDelayed(startupTimeout, 30_000L)
         Thread {
             try {
                 val pfd = buildTunnel(s)
                 startCoreProcess(s, pfd)
-                everOn = true
-                setState("on")
-                registerPackageReceiver(s)
+                synchronized(stateLock) {
+                    if (finishing) return@Thread
+                    handler.removeCallbacks(startupTimeout)
+                    everOn = true
+                    setState("on")
+                    registerPackageReceiver(s)
+                    registerNetworkCallback()
+                }
             } catch (t: Throwable) {
                 val msg = t.message ?: t.toString()
                 if (!fromUser && s.killSwitch && tun != null && !finishing) {
@@ -239,6 +302,10 @@ class QuietVpnService : VpnService() {
                 }
             }
         }.start()
+    }
+
+    private val startupTimeout = Runnable {
+        if (!everOn && !finishing) finish("error:Тайм-аут запуска VPN")
     }
 
     // ---------------------------------------------------------------- туннель
@@ -292,6 +359,7 @@ class QuietVpnService : VpnService() {
     // ---------------------------------------------------------------- ядро
 
     private fun startCoreProcess(s: Session, pfd: ParcelFileDescriptor) {
+        val localDns = localDnsServers(this)
         val latch = CountDownLatch(1)
         var binder: IBinder? = null
         val conn = object : ServiceConnection {
@@ -301,7 +369,7 @@ class QuietVpnService : VpnService() {
             }
 
             override fun onServiceDisconnected(name: ComponentName?) {
-                onCoreGone()
+                if (coreConn === this) onCoreGone()
             }
         }
         coreConn = conn
@@ -322,6 +390,7 @@ class QuietVpnService : VpnService() {
             data.writeInt(if (s.debug) 1 else 0)
             data.writeFileDescriptor(pfd.fileDescriptor)
             data.writeStrongBinder(protectBinder)
+            data.writeStringList(localDns)
             b.transact(Ipc.CORE_START, data, reply, 0)
             reply.readException() // бросит исключение с текстом ошибки ядра
         } finally {
@@ -345,8 +414,14 @@ class QuietVpnService : VpnService() {
     /** Kill switch: туннель остаётся, ядро перезапускается, трафик пока заблокирован. */
     private fun enterBlocked() {
         if (finishing) return
+        handler.removeCallbacks(startupTimeout)
         setState("blocked")
-        handler.postDelayed({ retryCore() }, retryDelayMs)
+        if (retryScheduled.compareAndSet(false, true)) {
+            handler.postDelayed({
+                retryScheduled.set(false)
+                retryCore()
+            }, retryDelayMs)
+        }
         retryDelayMs = minOf(retryDelayMs * 2, 30000L)
     }
 
@@ -354,6 +429,7 @@ class QuietVpnService : VpnService() {
         if (finishing) return
         val s = session ?: return
         val t = tun ?: return
+        if (!retrying.compareAndSet(false, true)) return
         Thread {
             try {
                 coreConn?.let {
@@ -363,11 +439,14 @@ class QuietVpnService : VpnService() {
                     }
                 }
                 startCoreProcess(s, t)
+                if (finishing) return@Thread
                 everOn = true
                 retryDelayMs = 3000L
                 setState("on")
             } catch (_: Throwable) {
                 enterBlocked()
+            } finally {
+                retrying.set(false)
             }
         }.start()
     }
@@ -391,11 +470,79 @@ class QuietVpnService : VpnService() {
         packageReceiverRegistered = false
     }
 
+    private fun registerNetworkCallback() {
+        synchronized(stateLock) {
+            if (finishing || networkCallbackRegistered) return
+            val manager = getSystemService(ConnectivityManager::class.java)
+            try {
+                manager.registerDefaultNetworkCallback(networkCallback)
+                networkCallbackRegistered = true
+            } catch (e: Exception) {
+                BootReceiver.log(this, "не удалось отслеживать смену сети: " + (e.message ?: e.toString()))
+            }
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        if (!networkCallbackRegistered) return
+        try {
+            getSystemService(ConnectivityManager::class.java)
+                .unregisterNetworkCallback(networkCallback)
+        } catch (_: Exception) {
+        }
+        networkCallbackRegistered = false
+        underlyingNetwork = null
+        networkLost = false
+    }
+
+    /** Перезапускает исходящие соединения Mihomo после смены Wi-Fi/мобильной сети. */
+    private fun refreshCoreAfterNetworkChange() {
+        if (finishing || !everOn || rebuilding || readState(this) != "on") return
+        val s = session ?: return
+        val t = tun ?: return
+        Thread {
+            if (!rebuildInProgress.compareAndSet(false, true)) return@Thread
+            rebuilding = true
+            try {
+                setState("blocked")
+                core?.let { b ->
+                    val data = Parcel.obtain()
+                    try {
+                        data.writeInterfaceToken(Ipc.DESCRIPTOR)
+                        b.transact(Ipc.CORE_STOP, data, null, IBinder.FLAG_ONEWAY)
+                    } finally {
+                        data.recycle()
+                    }
+                }
+                core = null
+                coreConn?.let {
+                    try {
+                        unbindService(it)
+                    } catch (_: Exception) {
+                    }
+                }
+                Thread.sleep(700)
+                if (finishing) return@Thread
+                startCoreProcess(s, t)
+                if (finishing) return@Thread
+                retryDelayMs = 3000L
+                setState("on")
+            } catch (e: Throwable) {
+                if (s.killSwitch && tun != null) enterBlocked()
+                else finish("error:" + (e.message ?: e.toString()))
+            } finally {
+                rebuilding = false
+                rebuildInProgress.set(false)
+            }
+        }.start()
+    }
+
     /** Пересоздаёт туннель с обновлённым списком приложений вне VPN и перезапускает ядро. */
     private fun rebuildTunnel() {
         if (finishing) return
         val s = session ?: return
         Thread {
+            if (!rebuildInProgress.compareAndSet(false, true)) return@Thread
             rebuilding = true
             try {
                 updateNotification("Обновляю список приложений…")
@@ -429,6 +576,7 @@ class QuietVpnService : VpnService() {
                 if (s.killSwitch && tun != null) enterBlocked() else finish("error:" + (t.message ?: t.toString()))
             } finally {
                 rebuilding = false
+                rebuildInProgress.set(false)
             }
         }.start()
     }
@@ -437,14 +585,19 @@ class QuietVpnService : VpnService() {
 
     /** Закрывает туннель, сообщает итоговое состояние и завершает процессы службы и ядра. */
     private fun finish(finalState: String) {
-        if (finishing) return
-        finishing = true
+        synchronized(stateLock) {
+            if (finishing) return
+            finishing = true
+        }
         val prefs = getSharedPreferences("native", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("updatePending", false)) {
             prefs.edit().putBoolean("resume", false).apply()
         }
         handler.removeCallbacksAndMessages(null)
+        retryScheduled.set(false)
         unregisterPackageReceiver()
+        handler.removeCallbacks(networkRefreshRunnable)
+        unregisterNetworkCallback()
         try {
             core?.let { b ->
                 val d = Parcel.obtain()
@@ -498,32 +651,47 @@ class QuietVpnService : VpnService() {
     // ---------------------------------------------------------------- состояние и уведомление
 
     private fun setState(state: String) {
-        when {
-            state == "on" && connectedSinceMillis == 0L ->
-                connectedSinceMillis = System.currentTimeMillis()
-            state == "connecting" || state == "off" || state.startsWith("error:") ->
-                connectedSinceMillis = 0L
-        }
-        try {
-            val atomicFile = AtomicFile(File(filesDir, "vpn_state"))
-            val output = atomicFile.startWrite()
+        synchronized(stateLock) {
+            if (finishing && state != "off" && !state.startsWith("error:")) return
+            when {
+                state == "on" && connectedSinceMillis == 0L ->
+                    connectedSinceMillis = System.currentTimeMillis()
+                state == "connecting" || state == "off" || state.startsWith("error:") ->
+                    connectedSinceMillis = 0L
+            }
             try {
-                output.write("$state|${Process.myPid()}|$connectedSinceMillis".toByteArray())
-                atomicFile.finishWrite(output)
-            } catch (e: Exception) {
-                atomicFile.failWrite(output)
-                throw e
+                val atomicFile = AtomicFile(File(filesDir, "vpn_state"))
+                val output = atomicFile.startWrite()
+                try {
+                    val bootCount = try {
+                        Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT, -1)
+                    } catch (_: Exception) {
+                        -1
+                    }
+                    output.write("$state|${Process.myPid()}|$connectedSinceMillis|$bootCount".toByteArray())
+                    atomicFile.finishWrite(output)
+                } catch (e: Exception) {
+                    atomicFile.failWrite(output)
+                    throw e
+                }
+            } catch (_: Exception) {
             }
-        } catch (_: Exception) {
-        }
-        sendBroadcast(Intent(ACTION_STATE).setPackage(packageName).putExtra("state", state))
-        when (state) {
-            "on" -> {
-                // Запоминаем, что VPN работал: после обновления приложения он включится снова.
-                getSharedPreferences("native", Context.MODE_PRIVATE).edit().putBoolean("resume", true).apply()
-                updateNotification("Подключено")
+            sendBroadcast(Intent(ACTION_STATE).setPackage(packageName).putExtra("state", state))
+            try {
+                TileService.requestListeningState(
+                    this,
+                    ComponentName(this, VpnQuickSettingsTile::class.java)
+                )
+            } catch (_: Exception) {
             }
-            "blocked" -> updateNotification("Связь потеряна: трафик заблокирован")
+            when (state) {
+                "on" -> {
+                    // Запоминаем, что VPN работал: после обновления приложения он включится снова.
+                    getSharedPreferences("native", Context.MODE_PRIVATE).edit().putBoolean("resume", true).apply()
+                    updateNotification("Подключено")
+                }
+                "blocked" -> updateNotification("Связь потеряна: трафик заблокирован")
+            }
         }
     }
 

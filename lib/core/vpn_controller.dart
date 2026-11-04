@@ -24,6 +24,8 @@ abstract class VpnController extends ChangeNotifier {
 
   Future<String> readLog() async => '';
 
+  Future<List<String>> localDnsServers() async => const ['127.0.0.1'];
+
   /// Открывает системные настройки VPN (на Android: «Блокировать соединения без VPN»).
   Future<void> openSystemVpnSettings() async {}
 

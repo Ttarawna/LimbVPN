@@ -11,6 +11,26 @@ void main() {
 
   const channel = MethodChannel('quiet/vpn');
 
+  test('reads local DNS servers from Android', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'statusDetails') {
+            return <String, Object?>{'state': 'off', 'since': null};
+          }
+          expect(call.method, 'localDnsServers');
+          return <String>['192.168.1.1'];
+        });
+
+    final controller = MieruServiceManager();
+    try {
+      expect(await controller.localDnsServers(), ['192.168.1.1']);
+    } finally {
+      controller.dispose();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    }
+  });
+
   test(
     'refreshes service state and connection time when app resumes',
     () async {

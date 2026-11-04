@@ -12,16 +12,33 @@ String _q(String s) => jsonEncode(s); // JSON-строка корректна и
 String buildMihomoConfig(
   MieruProfile p, {
   required List<String> serverIps,
-  bool dnsProtection = true,
+  required List<String> localDnsServers,
+  bool adBlock = false,
   bool blockIpv6 = true,
   bool debug = false,
 }) {
   final b = StringBuffer();
   final excluded =
       serverIps.map((ip) => ip.contains(':') ? '$ip/128' : '$ip/32').toList();
-  final serverIsIp = InternetAddress.tryParse(p.server) != null;
-  const ruDns = '[77.88.8.8, 77.88.8.1]';
-
+  final parsedServer = InternetAddress.tryParse(p.server);
+  final serverAddresses = parsedServer != null
+      ? (blockIpv6 && parsedServer.type == InternetAddressType.IPv6
+            ? <String>[]
+            : [p.server])
+      : serverIps
+            .where((ip) => !blockIpv6 || !ip.contains(':'))
+            .toSet()
+            .toList();
+  if (serverAddresses.isEmpty) {
+    throw ArgumentError('Нет доступного IP-адреса VPN-сервера');
+  }
+  final validLocalDns = localDnsServers
+      .where((server) => InternetAddress.tryParse(server) != null)
+      .toSet()
+      .toList();
+  if (validLocalDns.isEmpty) {
+    throw ArgumentError('Не найден адрес локального DNS-резолвера');
+  }
   // Локальный порт прокси нужен только для диагностики: российские приложения умеют его находить.
   if (debug) b.writeln('mixed-port: 7890');
   b.writeln('mode: rule');
@@ -59,16 +76,11 @@ String buildMihomoConfig(
   b.writeln('  enhanced-mode: fake-ip');
   b.writeln('  fake-ip-range: 198.18.0.1/16');
   b.writeln('  fake-ip-filter: ["+.ru", "+.su", "+.xn--p1ai"]');
-  b.writeln('  default-nameserver: $ruDns');
-  b.writeln('  proxy-server-nameserver: [77.88.8.8]');
-  if (dnsProtection) {
-    b.writeln('  nameserver: ["https://1.1.1.1/dns-query#mieru"]');
-    b.writeln('  nameserver-policy:');
-    for (final d in ['+.ru', '+.su', '+.xn--p1ai', 'geosite:category-ru']) {
-      b.writeln('    ${_q(d)}: $ruDns');
-    }
-  } else {
-    b.writeln('  nameserver: [system]');
+  // Remote DoH is the default; RU policy below explicitly uses the local network DNS.
+  b.writeln('  nameserver: ["https://1.1.1.1/dns-query#mieru"]');
+  b.writeln('  nameserver-policy:');
+  for (final domain in ['+.ru', '+.su', '+.xn--p1ai', 'geosite:category-ru']) {
+    b.writeln('    ${_q(domain)}: ${jsonEncode(validLocalDns)}');
   }
 
   b.writeln('proxies:');
@@ -90,22 +102,25 @@ String buildMihomoConfig(
     }
     entries.add(bind);
   }
-  for (var i = 0; i < entries.length; i++) {
-    final bind = entries[i];
-    final name = 'mieru-${i + 1}';
-    names.add(name);
-    b.writeln('  - name: $name');
-    b.writeln('    type: mieru');
-    b.writeln('    server: ${_q(p.server)}');
-    b.writeln(bind.isRange
-        ? '    port-range: ${_q(bind.port)}'
-        : '    port: ${bind.port}');
-    b.writeln('    transport: ${bind.protocol}');
-    b.writeln('    username: ${_q(p.username)}');
-    b.writeln('    password: ${_q(p.password)}');
-    b.writeln('    udp: true');
-    if (p.multiplexing != null) {
-      b.writeln('    multiplexing: ${p.multiplexing}');
+  for (final address in serverAddresses) {
+    for (final bind in entries) {
+      final name = 'mieru-${names.length + 1}';
+      names.add(name);
+      b.writeln('  - name: $name');
+      b.writeln('    type: mieru');
+      b.writeln('    server: ${_q(address)}');
+      b.writeln(
+        bind.isRange
+            ? '    port-range: ${_q(bind.port)}'
+            : '    port: ${bind.port}',
+      );
+      b.writeln('    transport: ${bind.protocol}');
+      b.writeln('    username: ${_q(p.username)}');
+      b.writeln('    password: ${_q(p.password)}');
+      b.writeln('    udp: true');
+      if (p.multiplexing != null) {
+        b.writeln('    multiplexing: ${p.multiplexing}');
+      }
     }
   }
 
@@ -124,7 +139,8 @@ String buildMihomoConfig(
         ? '  - IP-CIDR6,$ip/128,DIRECT,no-resolve'
         : '  - IP-CIDR,$ip/32,DIRECT,no-resolve');
   }
-  if (!serverIsIp) b.writeln('  - DOMAIN,${p.server},DIRECT');
+  if (parsedServer == null) b.writeln('  - DOMAIN,${p.server},DIRECT');
+  if (adBlock) b.writeln('  - GEOSITE,category-ads-all,REJECT');
   b.writeln('  - GEOIP,PRIVATE,DIRECT,no-resolve');
   b.writeln('  - DOMAIN-SUFFIX,ru,DIRECT');
   b.writeln('  - DOMAIN-SUFFIX,su,DIRECT');

@@ -96,6 +96,13 @@ class MainActivity : FlutterActivity() {
                 }
                 "status" -> result.success(QuietVpnService.readState(this))
                 "statusDetails" -> result.success(QuietVpnService.readStatus(this))
+                "localDnsServers" -> {
+                    try {
+                        result.success(localDnsServers(this))
+                    } catch (e: Exception) {
+                        result.error("local_dns_unavailable", e.message, null)
+                    }
+                }
                 "lockdown" -> result.success(readFile("mihomo/lockdown"))
                 "excludedApps" -> result.success(readFile("mihomo/excluded_apps.txt"))
                 "readLog" -> result.success(buildLogText())
@@ -299,6 +306,9 @@ class MainActivity : FlutterActivity() {
             pendingStart = null
         } else if (state.startsWith("error:")) {
             pendingStart?.error("start_failed", state.removePrefix("error:"), null)
+            pendingStart = null
+        } else if (state == "off" && pendingStart != null) {
+            pendingStart?.error("start_cancelled", "Подключение отменено", null)
             pendingStart = null
         }
     }

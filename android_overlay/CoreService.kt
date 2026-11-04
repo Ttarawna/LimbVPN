@@ -27,8 +27,9 @@ class CoreService : Service() {
                     val debug = data.readInt() == 1
                     val tun = data.readFileDescriptor()
                     val protect = data.readStrongBinder()
+                    val localDns = data.createStringArrayList()?.toList() ?: emptyList()
                     try {
-                        startCore(config, debug, tun, protect)
+                        startCore(config, debug, tun, protect, localDns)
                         reply?.writeNoException()
                     } catch (t: Throwable) {
                         reply?.writeException(IllegalStateException(t.message ?: t.toString()))
@@ -51,10 +52,23 @@ class CoreService : Service() {
 
     override fun onBind(intent: Intent?): IBinder = binder
 
-    private fun startCore(config: String, debug: Boolean, tun: ParcelFileDescriptor, protect: IBinder) {
+    private fun startCore(
+        config: String,
+        debug: Boolean,
+        tun: ParcelFileDescriptor,
+        protect: IBinder,
+        localDns: List<String>
+    ) {
         val home = File(filesDir, "mihomo").apply { mkdirs() }
         copyGeoFiles(home)
-        Quietcore.start(home.absolutePath, config, tun.fd.toLong(), IpcProtector(protect), debug)
+        Quietcore.start(
+            home.absolutePath,
+            config,
+            tun.fd.toLong(),
+            IpcProtector(protect),
+            debug,
+            localDns.toTypedArray()
+        )
     }
 
     /** Списки РФ кладутся в APK при сборке. Если их нет, Mihomo скачает сам. */
